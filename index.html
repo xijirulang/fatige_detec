@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>面部疲劳检测系统</title>
-    <!-- 引入 Tailwind CSS 进行移动端适配和界面样式设计 -->
+    <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 MediaPipe 核心库 -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -14,14 +14,15 @@
     <style>
         /* 闪烁的警告动画 */
         @keyframes flash-red {
-            0% { background-color: rgba(239, 68, 68, 0.2); }
-            50% { background-color: rgba(239, 68, 68, 0.6); }
-            100% { background-color: rgba(239, 68, 68, 0.2); }
+            0% { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
+            50% { background-color: rgba(239, 68, 68, 0.6); border-color: rgba(239, 68, 68, 1); }
+            100% { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
         }
         .warning-flash {
             animation: flash-red 1s infinite;
         }
-        .video-container {
+        
+        .canvas-container {
             position: relative;
             width: 100%;
             max-width: 600px;
@@ -29,34 +30,39 @@
             border-radius: 0.75rem;
             overflow: hidden;
             background-color: #1f2937;
-            aspect-ratio: 3/4;
+            /* 移除写死的宽高比，让其自适应 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid #374151;
         }
-        video, canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
+        
+        canvas {
             width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* 镜像翻转前置摄像头 */
+            height: auto;
+            max-height: 60vh; /* 防止在小屏幕上占据太多高度 */
+            object-fit: contain; /* 保证画面完整不被裁剪 */
+            transform: scaleX(-1); /* 镜像翻转前置摄像头，符合用户照镜子习惯 */
         }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex flex-col font-sans">
 
     <!-- 头部导航 -->
-    <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10">
+    <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10 shrink-0">
         <h1 class="text-xl font-bold tracking-wider">AI 疲劳检测</h1>
         <div id="statusIndicator" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600">未启动</div>
     </header>
 
     <!-- 主体内容 -->
-    <main class="flex-1 flex flex-col p-4 w-full max-w-lg mx-auto space-y-4">
+    <main class="flex-1 flex flex-col p-4 w-full max-w-lg mx-auto space-y-4 overflow-y-auto">
         
         <!-- 视频与画布区域 -->
-        <div id="screenContainer" class="video-container shadow-lg border-2 border-gray-700 transition-colors duration-300">
-            <!-- playsinline 非常重要，确保 iOS 微信/Safari 内联播放而不是全屏 -->
-            <video id="inputVideo" playsinline autoplay muted></video>
+        <div id="screenContainer" class="canvas-container shadow-lg transition-colors duration-300">
+            <!-- 隐藏 Video，只作为后台数据流。不再用于直接显示 -->
+            <video id="inputVideo" playsinline autoplay muted class="hidden"></video>
+            
+            <!-- 所有的画面和坐标点都画在这个 Canvas 上，确保绝对对齐 -->
             <canvas id="outputCanvas"></canvas>
             
             <!-- 加载提示 -->
@@ -69,7 +75,7 @@
         </div>
 
         <!-- 实时数据面板 -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-2 gap-4 shrink-0">
             <div class="bg-gray-800 p-3 rounded-lg flex flex-col items-center shadow-inner">
                 <span class="text-gray-400 text-xs mb-1">眼睛闭合度 (EAR)</span>
                 <span id="earValue" class="text-2xl font-mono font-bold text-green-400">0.00</span>
@@ -83,17 +89,17 @@
         </div>
 
         <!-- 操作按钮 -->
-        <div class="flex space-x-2">
+        <div class="flex space-x-2 shrink-0">
             <button id="toggleBtn" class="flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg">
                 启动摄像头开始检测
             </button>
             <button id="exportBtn" class="hidden px-4 py-4 rounded-xl text-lg font-bold bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors shadow-lg">
-                导出数据
+                导出
             </button>
         </div>
 
         <!-- 警告日志区域 -->
-        <div class="flex-1 bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col shadow-inner">
+        <div class="flex-1 min-h-[120px] bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col shadow-inner">
             <h2 class="text-sm text-gray-400 border-b border-gray-700 pb-2 mb-2">系统日志</h2>
             <ul id="logList" class="flex-1 overflow-y-auto text-xs space-y-2 font-mono text-gray-300 pr-2">
                 <li class="text-gray-500">等待启动...</li>
@@ -121,8 +127,8 @@
         let camera = null;
         let faceMesh = null;
 
-        // 疲劳检测阈值与参数（根据要求设置）
-        const EAR_RATIO_THRESHOLD = 0.6; // 相对闭眼阈值系数（低于正常睁眼状态的60%算作闭眼）
+        // 疲劳检测阈值与参数
+        const EAR_RATIO_THRESHOLD = 0.6; // 相对闭眼阈值系数
         const MAR_THRESHOLD = 0.5;      // 打哈欠阈值
         const CLOSED_EYES_TIME = 1000;  // 闭眼时长超过1秒 (毫秒)
         const HEAD_MOVE_THRESHOLD = 0.05; // 头部大幅度移动阈值 (归一化距离)
@@ -160,29 +166,23 @@
         }
 
         // 计算眼睛纵横比 (EAR)
-        // MediaPipe 标准 468 关键点中的眼睛部位索引
         function calculateEAR(landmarks, eyeIndices) {
-            // p1 到 p6 是眼睛轮廓上的6个关键点
-            const p1 = landmarks[eyeIndices[0]]; // 外/内眼角
-            const p2 = landmarks[eyeIndices[1]]; // 上眼睑
-            const p3 = landmarks[eyeIndices[2]]; // 上眼睑
-            const p4 = landmarks[eyeIndices[3]]; // 内/外眼角
-            const p5 = landmarks[eyeIndices[4]]; // 下眼睑
-            const p6 = landmarks[eyeIndices[5]]; // 下眼睑
+            const p1 = landmarks[eyeIndices[0]];
+            const p2 = landmarks[eyeIndices[1]];
+            const p3 = landmarks[eyeIndices[2]];
+            const p4 = landmarks[eyeIndices[3]];
+            const p5 = landmarks[eyeIndices[4]];
+            const p6 = landmarks[eyeIndices[5]];
 
-            // 计算垂直距离
             const v1 = calculateDistance(p2, p6);
             const v2 = calculateDistance(p3, p5);
-            // 计算水平距离
             const h = calculateDistance(p1, p4);
 
-            // EAR 公式
             return (v1 + v2) / (2.0 * h);
         }
 
         // 计算嘴巴纵横比 (MAR)
         function calculateMAR(landmarks) {
-            // 嘴唇内侧关键点索引
             const topLip = landmarks[13];
             const bottomLip = landmarks[14];
             const leftCorner = landmarks[78];
@@ -201,13 +201,12 @@
             
             if (type === 'critical') {
                 li.innerHTML = `<span class="text-red-400">[${timeStr}] ⚠️ ${message}</span>`;
-                // 触发屏幕红闪
-                screenContainer.classList.add('warning-flash', 'border-red-500');
+                screenContainer.classList.add('warning-flash');
                 statusIndicator.innerText = "疲劳警告！";
                 statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-red-600 animate-pulse";
                 
                 setTimeout(() => {
-                    screenContainer.classList.remove('warning-flash', 'border-red-500');
+                    screenContainer.classList.remove('warning-flash');
                     statusIndicator.innerText = "检测中";
                     statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-green-600";
                 }, 1500);
@@ -220,7 +219,6 @@
             }
 
             logList.prepend(li);
-            // 保持日志列表不要太长
             if (logList.children.length > 50) {
                 logList.removeChild(logList.lastChild);
             }
@@ -228,7 +226,6 @@
 
         // 核心检测逻辑
         function onResults(results) {
-            // 隐藏加载动画
             if(loadingOverlay.classList.contains('flex')) {
                 loadingOverlay.classList.remove('flex');
                 loadingOverlay.classList.add('hidden');
@@ -236,21 +233,26 @@
                 statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-green-600";
             }
 
-            // 调整 canvas 尺寸使其匹配视频
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
+            // 【关键修复1】获取真实的手机摄像头输出分辨率，并动态赋给画布内部分辨率
+            // 这样保证无论手机传感器是横是竖，坐标系比例始终 1:1 匹配
+            canvasElement.width = results.image.width;
+            canvasElement.height = results.image.height;
+            
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // 【关键修复2】将视频流作为图像绘制到画布上。保证图像和后面绘制的特征点在一个图层、同一个缩放体系下。
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 const landmarks = results.multiFaceLandmarks[0];
 
-                // 绘制面部网格（仅绘制眼部和嘴部）
-                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#34d399', lineWidth: 1.5});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#34d399', lineWidth: 1.5});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#f87171', lineWidth: 1.5});
+                // 绘制面部网格（眼部和嘴部）
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#34d399', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#34d399', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#f87171', lineWidth: 2});
 
-                // --- 新增：计算头部大幅度移动 (事件c) ---
+                // --- 头部大幅度移动 (事件c) ---
                 const nose = landmarks[1];
                 const now = Date.now();
                 if (lastNosePosition) {
@@ -267,16 +269,14 @@
                 lastNosePosition = {x: nose.x, y: nose.y};
 
                 // --- 1. 计算闭眼 (EAR) ---
-                // 右眼关键点 (由于镜像，用户右眼对应画面左侧)
                 const rightEyeIndices = [33, 160, 158, 133, 153, 144];
-                // 左眼关键点 (画面右侧)
                 const leftEyeIndices = [362, 385, 387, 263, 373, 380];
 
                 const rightEAR = calculateEAR(landmarks, rightEyeIndices);
                 const leftEAR = calculateEAR(landmarks, leftEyeIndices);
                 const avgEAR = (rightEAR + leftEAR) / 2.0;
 
-                // --- 新增：面部特征动态校准逻辑 ---
+                // --- 面部特征动态校准逻辑 ---
                 if (isCalibrating) {
                     if (calibrationStartTime === 0) {
                         calibrationStartTime = now;
@@ -285,36 +285,28 @@
                     
                     calibrationEARValues.push(avgEAR);
                     earValueEl.innerText = avgEAR.toFixed(2);
-                    earValueEl.className = "text-2xl font-mono font-bold text-yellow-400"; // 校准时显示为黄色
+                    earValueEl.className = "text-2xl font-mono font-bold text-yellow-400"; 
                     
-                    // 校准2秒，并确保收集了足够的帧数据
                     if (now - calibrationStartTime > 2000 && calibrationEARValues.length > 10) {
-                        // 完成校准：取较高的一半数据的平均值作为基准 (过滤掉校准期间用户可能眨眼产生的低值数据)
                         const sortedEARs = [...calibrationEARValues].sort();
                         const topHalf = sortedEARs.slice(Math.floor(sortedEARs.length / 2));
                         baselineEAR = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
-                        
-                        // 动态设置阈值：正常睁眼的比例 (例如 60%)
                         currentEarThreshold = baselineEAR * EAR_RATIO_THRESHOLD;
                         
                         earThresholdEl.innerText = `基准: ${baselineEAR.toFixed(2)} | 阈值: < ${currentEarThreshold.toFixed(2)}`;
-                        triggerAlert(`校准完成！您的眼睑基准: ${baselineEAR.toFixed(2)}，闭眼阈值自动设为 < ${currentEarThreshold.toFixed(2)}`, "info");
+                        triggerAlert(`校准完成！您的眼睑基准: ${baselineEAR.toFixed(2)}，闭眼阈值设为 < ${currentEarThreshold.toFixed(2)}`, "info");
                         isCalibrating = false;
                     }
                 } else {
                     // --- 校准完成后的正常检测逻辑 ---
-                    
-                    // 更新界面
                     earValueEl.innerText = avgEAR.toFixed(2);
                     earValueEl.className = `text-2xl font-mono font-bold ${avgEAR < currentEarThreshold ? 'text-red-500' : 'text-green-400'}`;
 
-                    // 闭眼逻辑判断 (事件a)
                     if (avgEAR < currentEarThreshold) {
                         if (!isEyesClosed) {
                             isEyesClosed = true;
                             eyesClosedStartTime = now;
                         } else {
-                            // 持续闭眼时间，仅用于UI提示，不重复记录事件
                             const duration = now - eyesClosedStartTime;
                             if (duration >= CLOSED_EYES_TIME && (now - lastEyeAlertTime > 2000)) {
                                 triggerAlert(`重度疲劳！持续闭眼！`, 'critical');
@@ -324,10 +316,9 @@
                     } else {
                         if (isEyesClosed) {
                             const duration = now - eyesClosedStartTime;
-                            // 如果闭眼时间超过阈值，在睁眼时记录事件a
                             if (duration >= CLOSED_EYES_TIME) {
                                 recordEvent('a', duration);
-                                triggerAlert(`记录事件a: 闭眼时长 ${duration}ms`, 'info');
+                                triggerAlert(`记录事件: 闭眼时长 ${duration}ms`, 'info');
                             }
                             isEyesClosed = false;
                         }
@@ -336,14 +327,10 @@
 
                 // --- 2. 计算打哈欠 (MAR) ---
                 const mar = calculateMAR(landmarks);
-                
-                // 更新界面
                 marValueEl.innerText = mar.toFixed(2);
                 marValueEl.className = `text-2xl font-mono font-bold ${mar > MAR_THRESHOLD ? 'text-red-500' : 'text-green-400'}`;
 
-                // 打哈欠逻辑判断 (事件b)
                 if (mar > MAR_THRESHOLD) {
-                    // 防止一个哈欠连续触发多次，设置 3 秒冷却时间
                     if (now - lastYawnTime > 3000) {
                         triggerAlert(`检测到打哈欠！(MAR: ${mar.toFixed(2)})`, 'critical');
                         recordEvent('b', mar.toFixed(2));
@@ -368,7 +355,7 @@
 
             faceMesh.setOptions({
                 maxNumFaces: 1,
-                refineLandmarks: true, // 提供更精确的眼部、唇部关键点
+                refineLandmarks: true, 
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
@@ -379,9 +366,8 @@
                 onFrame: async () => {
                     await faceMesh.send({image: videoElement});
                 },
-                width: 480,
-                height: 640,
-                facingMode: 'user' // 强制使用前置摄像头
+                // 去除写死的 480x640，允许设备自己协商最佳前置分辨率，这在安卓端非常重要
+                facingMode: 'user' 
             });
         }
 
@@ -389,7 +375,6 @@
         toggleBtn.addEventListener('click', async () => {
             if (!isRunning) {
                 try {
-                    // 状态调整为加载中
                     loadingOverlay.classList.remove('hidden');
                     loadingOverlay.classList.add('flex');
                     toggleBtn.innerText = "停止检测";
@@ -398,7 +383,6 @@
                     statusIndicator.innerText = "正在启动...";
                     statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-yellow-600";
 
-                    // 每次启动时重置校准状态
                     isCalibrating = true;
                     calibrationStartTime = 0;
                     calibrationEARValues = [];
@@ -412,14 +396,12 @@
                 } catch (error) {
                     triggerAlert("启动摄像头失败，请确保授予摄像头权限并在 HTTPS 环境下运行。", "critical");
                     console.error(error);
-                    // 恢复按钮
                     toggleBtn.innerText = "启动摄像头开始检测";
                     toggleBtn.className = "flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg";
                     loadingOverlay.classList.add('hidden');
                     loadingOverlay.classList.remove('flex');
                 }
             } else {
-                // 停止检测
                 if (camera) {
                     await camera.stop();
                 }
@@ -443,7 +425,6 @@
                 return;
             }
             
-            // 构建 CSV 格式字符串 (添加BOM以支持Excel直接打开不乱码)
             let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
             csvContent += "时间戳,事件类型,事件代号,数值(时长ms/幅度/MAR)\n";
             
