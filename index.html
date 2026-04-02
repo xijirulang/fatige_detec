@@ -12,7 +12,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <style>
-        /* 闪烁的警告动画 */
         @keyframes flash-red {
             0% { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
             50% { background-color: rgba(239, 68, 68, 0.6); border-color: rgba(239, 68, 68, 1); }
@@ -21,7 +20,6 @@
         .warning-flash {
             animation: flash-red 1s infinite;
         }
-        
         .canvas-container {
             position: relative;
             width: 100%;
@@ -30,42 +28,33 @@
             border-radius: 0.75rem;
             overflow: hidden;
             background-color: #1f2937;
-            /* 移除写死的宽高比，让其自适应 */
             display: flex;
             justify-content: center;
             align-items: center;
             border: 2px solid #374151;
         }
-        
         canvas {
             width: 100%;
             height: auto;
-            max-height: 60vh; /* 防止在小屏幕上占据太多高度 */
-            object-fit: contain; /* 保证画面完整不被裁剪 */
-            transform: scaleX(-1); /* 镜像翻转前置摄像头，符合用户照镜子习惯 */
+            max-height: 50vh; 
+            object-fit: contain; 
+            transform: scaleX(-1); 
         }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex flex-col font-sans">
 
-    <!-- 头部导航 -->
     <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10 shrink-0">
         <h1 class="text-xl font-bold tracking-wider">AI 疲劳检测</h1>
         <div id="statusIndicator" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600">未启动</div>
     </header>
 
-    <!-- 主体内容 -->
     <main class="flex-1 flex flex-col p-4 w-full max-w-lg mx-auto space-y-4 overflow-y-auto">
         
-        <!-- 视频与画布区域 -->
         <div id="screenContainer" class="canvas-container shadow-lg transition-colors duration-300">
-            <!-- 隐藏 Video，只作为后台数据流。不再用于直接显示 -->
             <video id="inputVideo" playsinline autoplay muted class="hidden"></video>
-            
-            <!-- 所有的画面和坐标点都画在这个 Canvas 上，确保绝对对齐 -->
             <canvas id="outputCanvas"></canvas>
             
-            <!-- 加载提示 -->
             <div id="loadingOverlay" class="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-80 z-10 hidden">
                 <div class="text-center">
                     <div class="inline-block animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mb-2"></div>
@@ -74,31 +63,34 @@
             </div>
         </div>
 
-        <!-- 实时数据面板 -->
-        <div class="grid grid-cols-2 gap-4 shrink-0">
-            <div class="bg-gray-800 p-3 rounded-lg flex flex-col items-center shadow-inner">
-                <span class="text-gray-400 text-xs mb-1">眼睛闭合度 (EAR)</span>
-                <span id="earValue" class="text-2xl font-mono font-bold text-green-400">0.00</span>
-                <span id="earThresholdEl" class="text-gray-500 text-[10px] mt-1">阈值: 待校准</span>
+        <!-- 实时数据面板 (改为三列，加入 PERCLOS) -->
+        <div class="grid grid-cols-3 gap-2 shrink-0">
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">闭眼(EAR)</span>
+                <span id="earValue" class="text-lg font-mono font-bold text-green-400">0.00</span>
+                <span id="earThresholdEl" class="text-gray-500 text-[9px] mt-1 text-center w-full truncate">待校准</span>
             </div>
-            <div class="bg-gray-800 p-3 rounded-lg flex flex-col items-center shadow-inner">
-                <span class="text-gray-400 text-xs mb-1">嘴巴张开度 (MAR)</span>
-                <span id="marValue" class="text-2xl font-mono font-bold text-green-400">0.00</span>
-                <span class="text-gray-500 text-[10px] mt-1">阈值: > 0.50</span>
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">哈欠(MAR)</span>
+                <span id="marValue" class="text-lg font-mono font-bold text-green-400">0.00</span>
+                <span class="text-gray-500 text-[9px] mt-1">阈值: > 0.50</span>
+            </div>
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">闭眼占比(5秒)</span>
+                <span id="perclosValue" class="text-lg font-mono font-bold text-blue-400">0.0%</span>
+                <span class="text-gray-500 text-[9px] mt-1">纯记录 无预警</span>
             </div>
         </div>
 
-        <!-- 操作按钮 -->
         <div class="flex space-x-2 shrink-0">
             <button id="toggleBtn" class="flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg">
                 启动摄像头开始检测
             </button>
             <button id="exportBtn" class="hidden px-4 py-4 rounded-xl text-lg font-bold bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors shadow-lg">
-                导出
+                导出日志
             </button>
         </div>
 
-        <!-- 警告日志区域 -->
         <div class="flex-1 min-h-[120px] bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col shadow-inner">
             <h2 class="text-sm text-gray-400 border-b border-gray-700 pb-2 mb-2">系统日志</h2>
             <ul id="logList" class="flex-1 overflow-y-auto text-xs space-y-2 font-mono text-gray-300 pr-2">
@@ -108,7 +100,7 @@
     </main>
 
     <script>
-        // DOM 元素引用
+        // DOM 元素
         const videoElement = document.getElementById('inputVideo');
         const canvasElement = document.getElementById('outputCanvas');
         const canvasCtx = canvasElement.getContext('2d');
@@ -119,6 +111,7 @@
         const earValueEl = document.getElementById('earValue');
         const earThresholdEl = document.getElementById('earThresholdEl');
         const marValueEl = document.getElementById('marValue');
+        const perclosValueEl = document.getElementById('perclosValue');
         const logList = document.getElementById('logList');
         const exportBtn = document.getElementById('exportBtn');
 
@@ -126,21 +119,33 @@
         let isRunning = false;
         let camera = null;
         let faceMesh = null;
+        let sessionStartTime = null; 
+        let wakeLock = null; // 屏幕常亮锁
+
+        // 性能降频设置 (约 10 FPS)
+        const PROCESS_INTERVAL_MS = 100;
+        let lastProcessTime = 0;
 
         // 疲劳检测阈值与参数
-        const EAR_RATIO_THRESHOLD = 0.6; // 相对闭眼阈值系数
-        const MAR_THRESHOLD = 0.5;      // 打哈欠阈值
-        const CLOSED_EYES_TIME = 1000;  // 闭眼时长超过1秒 (毫秒)
-        const HEAD_MOVE_THRESHOLD = 0.05; // 头部大幅度移动阈值 (归一化距离)
+        const EAR_RATIO_THRESHOLD = 0.6; 
+        const MAR_THRESHOLD = 0.5;      
+        const CLOSED_EYES_TIME = 1000;  
+        const HEAD_MOVE_THRESHOLD = 0.05; 
 
         // 动态校准变量
         let isCalibrating = false;
         let calibrationStartTime = 0;
         let calibrationEARValues = [];
         let baselineEAR = 0;
-        let currentEarThreshold = 0.2; // 默认兜底阈值
+        let currentEarThreshold = 0.2; 
 
-        // 计时状态记录
+        // 5秒周期 PERCLOS 记录
+        let perclosData = []; // 存放所有5秒区间的平均闭眼占比
+        let epochStartTime = 0;
+        let currentEpochFrames = 0;
+        let currentEpochClosedFrames = 0;
+
+        // 其他计时状态记录
         let eyesClosedStartTime = 0;
         let isEyesClosed = false;
         let lastEyeAlertTime = 0;
@@ -151,50 +156,54 @@
         // 数据记录数组
         let recordedEvents = [];
 
-        // 记录事件数据
+        // 屏幕常亮控制 (为1小时长测护航)
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('屏幕防休眠已激活');
+                }
+            } catch (err) {
+                console.warn(`屏幕常亮请求失败: ${err.name}, ${err.message}`);
+            }
+        }
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release().then(() => { wakeLock = null; });
+            }
+        }
+
+        // 记录事件数据 (a:单次闭眼, b:哈欠, c:大幅运动, p:PERCLOS周期记录, w:PERCLOS严重警告)
         function recordEvent(type, value) {
             recordedEvents.push({
                 timestamp: new Date().toISOString(),
-                type: type, // 'a': 闭眼, 'b': 打哈欠, 'c': 头部移动
+                type: type, 
                 value: value
             });
         }
 
-        // 计算两点之间的欧式距离
         function calculateDistance(p1, p2) {
             return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
         }
 
-        // 计算眼睛纵横比 (EAR)
         function calculateEAR(landmarks, eyeIndices) {
-            const p1 = landmarks[eyeIndices[0]];
-            const p2 = landmarks[eyeIndices[1]];
-            const p3 = landmarks[eyeIndices[2]];
-            const p4 = landmarks[eyeIndices[3]];
-            const p5 = landmarks[eyeIndices[4]];
-            const p6 = landmarks[eyeIndices[5]];
-
+            const p1 = landmarks[eyeIndices[0]]; const p2 = landmarks[eyeIndices[1]];
+            const p3 = landmarks[eyeIndices[2]]; const p4 = landmarks[eyeIndices[3]];
+            const p5 = landmarks[eyeIndices[4]]; const p6 = landmarks[eyeIndices[5]];
             const v1 = calculateDistance(p2, p6);
             const v2 = calculateDistance(p3, p5);
             const h = calculateDistance(p1, p4);
-
             return (v1 + v2) / (2.0 * h);
         }
 
-        // 计算嘴巴纵横比 (MAR)
         function calculateMAR(landmarks) {
-            const topLip = landmarks[13];
-            const bottomLip = landmarks[14];
-            const leftCorner = landmarks[78];
-            const rightCorner = landmarks[308];
-
+            const topLip = landmarks[13]; const bottomLip = landmarks[14];
+            const leftCorner = landmarks[78]; const rightCorner = landmarks[308];
             const v = calculateDistance(topLip, bottomLip);
             const h = calculateDistance(leftCorner, rightCorner);
-
             return v / h;
         }
 
-        // 添加日志并播放警报
         function triggerAlert(message, type) {
             const timeStr = new Date().toLocaleTimeString();
             const li = document.createElement('li');
@@ -204,7 +213,6 @@
                 screenContainer.classList.add('warning-flash');
                 statusIndicator.innerText = "疲劳警告！";
                 statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-red-600 animate-pulse";
-                
                 setTimeout(() => {
                     screenContainer.classList.remove('warning-flash');
                     statusIndicator.innerText = "检测中";
@@ -219,12 +227,9 @@
             }
 
             logList.prepend(li);
-            if (logList.children.length > 50) {
-                logList.removeChild(logList.lastChild);
-            }
+            if (logList.children.length > 50) logList.removeChild(logList.lastChild);
         }
 
-        // 核心检测逻辑
         function onResults(results) {
             if(loadingOverlay.classList.contains('flex')) {
                 loadingOverlay.classList.remove('flex');
@@ -233,33 +238,27 @@
                 statusIndicator.className = "px-3 py-1 rounded-full text-sm font-semibold bg-green-600";
             }
 
-            // 【关键修复1】获取真实的手机摄像头输出分辨率，并动态赋给画布内部分辨率
-            // 这样保证无论手机传感器是横是竖，坐标系比例始终 1:1 匹配
             canvasElement.width = results.image.width;
             canvasElement.height = results.image.height;
-            
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-            // 【关键修复2】将视频流作为图像绘制到画布上。保证图像和后面绘制的特征点在一个图层、同一个缩放体系下。
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            const now = Date.now();
 
             if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                 const landmarks = results.multiFaceLandmarks[0];
 
-                // 绘制面部网格（眼部和嘴部）
                 drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#34d399', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#34d399', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#f87171', lineWidth: 2});
 
-                // --- 头部大幅度移动 (事件c) ---
+                // --- 头部运动 ---
                 const nose = landmarks[1];
-                const now = Date.now();
                 if (lastNosePosition) {
                     const dx = nose.x - lastNosePosition.x;
                     const dy = nose.y - lastNosePosition.y;
                     const distance = Math.sqrt(dx*dx + dy*dy);
-                    
                     if (distance > HEAD_MOVE_THRESHOLD && (now - lastHeadMoveTime > 2000)) {
                         triggerAlert(`检测到头部大幅度移动！`, 'warning');
                         recordEvent('c', distance.toFixed(3));
@@ -268,48 +267,46 @@
                 }
                 lastNosePosition = {x: nose.x, y: nose.y};
 
-                // --- 1. 计算闭眼 (EAR) ---
-                const rightEyeIndices = [33, 160, 158, 133, 153, 144];
-                const leftEyeIndices = [362, 385, 387, 263, 373, 380];
-
-                const rightEAR = calculateEAR(landmarks, rightEyeIndices);
-                const leftEAR = calculateEAR(landmarks, leftEyeIndices);
+                // --- 计算 EAR ---
+                const rightEAR = calculateEAR(landmarks, [33, 160, 158, 133, 153, 144]);
+                const leftEAR = calculateEAR(landmarks, [362, 385, 387, 263, 373, 380]);
                 const avgEAR = (rightEAR + leftEAR) / 2.0;
 
-                // --- 面部特征动态校准逻辑 ---
                 if (isCalibrating) {
                     if (calibrationStartTime === 0) {
                         calibrationStartTime = now;
-                        triggerAlert("开始特征校准，请保持正常睁眼直视屏幕2秒...", "info");
+                        triggerAlert("开始校准，请保持正常睁眼直视屏幕2秒...", "info");
                     }
-                    
                     calibrationEARValues.push(avgEAR);
                     earValueEl.innerText = avgEAR.toFixed(2);
-                    earValueEl.className = "text-2xl font-mono font-bold text-yellow-400"; 
+                    earValueEl.className = "text-lg font-mono font-bold text-yellow-400"; 
                     
-                    if (now - calibrationStartTime > 2000 && calibrationEARValues.length > 10) {
+                    if (now - calibrationStartTime > 2000 && calibrationEARValues.length > 5) {
                         const sortedEARs = [...calibrationEARValues].sort();
                         const topHalf = sortedEARs.slice(Math.floor(sortedEARs.length / 2));
                         baselineEAR = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
                         currentEarThreshold = baselineEAR * EAR_RATIO_THRESHOLD;
                         
-                        earThresholdEl.innerText = `基准: ${baselineEAR.toFixed(2)} | 阈值: < ${currentEarThreshold.toFixed(2)}`;
-                        triggerAlert(`校准完成！您的眼睑基准: ${baselineEAR.toFixed(2)}，闭眼阈值设为 < ${currentEarThreshold.toFixed(2)}`, "info");
+                        earThresholdEl.innerText = `基准:${baselineEAR.toFixed(2)}`;
+                        triggerAlert(`校准完成！闭眼阈值设为 < ${currentEarThreshold.toFixed(2)}`, "info");
                         isCalibrating = false;
+                        lastPerclosLogTime = now; // 从此刻起开始心跳计时
                     }
                 } else {
-                    // --- 校准完成后的正常检测逻辑 ---
+                    // --- 常规检测逻辑 ---
+                    const isClosed = avgEAR < currentEarThreshold;
                     earValueEl.innerText = avgEAR.toFixed(2);
-                    earValueEl.className = `text-2xl font-mono font-bold ${avgEAR < currentEarThreshold ? 'text-red-500' : 'text-green-400'}`;
+                    earValueEl.className = `text-lg font-mono font-bold ${isClosed ? 'text-red-500' : 'text-green-400'}`;
 
-                    if (avgEAR < currentEarThreshold) {
+                    // 单次闭眼逻辑
+                    if (isClosed) {
                         if (!isEyesClosed) {
                             isEyesClosed = true;
                             eyesClosedStartTime = now;
                         } else {
                             const duration = now - eyesClosedStartTime;
                             if (duration >= CLOSED_EYES_TIME && (now - lastEyeAlertTime > 2000)) {
-                                triggerAlert(`重度疲劳！持续闭眼！`, 'critical');
+                                triggerAlert(`单次长时间闭眼！`, 'warning');
                                 lastEyeAlertTime = now; 
                             }
                         }
@@ -318,63 +315,91 @@
                             const duration = now - eyesClosedStartTime;
                             if (duration >= CLOSED_EYES_TIME) {
                                 recordEvent('a', duration);
-                                triggerAlert(`记录事件: 闭眼时长 ${duration}ms`, 'info');
                             }
                             isEyesClosed = false;
                         }
                     }
-                }
 
-                // --- 2. 计算打哈欠 (MAR) ---
-                const mar = calculateMAR(landmarks);
-                marValueEl.innerText = mar.toFixed(2);
-                marValueEl.className = `text-2xl font-mono font-bold ${mar > MAR_THRESHOLD ? 'text-red-500' : 'text-green-400'}`;
+                    // --- 5秒周期 PERCLOS 纯记录实现 ---
+                    if (epochStartTime === 0) epochStartTime = now;
+                    
+                    currentEpochFrames++;
+                    if (isClosed) currentEpochClosedFrames++;
 
-                if (mar > MAR_THRESHOLD) {
-                    if (now - lastYawnTime > 3000) {
-                        triggerAlert(`检测到打哈欠！(MAR: ${mar.toFixed(2)})`, 'critical');
-                        recordEvent('b', mar.toFixed(2));
-                        lastYawnTime = now;
+                    // 每当时间满 5 秒，计算并保存一次数据
+                    if (now - epochStartTime >= 5000) {
+                        const perclos = currentEpochFrames > 0 ? (currentEpochClosedFrames / currentEpochFrames) : 0;
+                        
+                        // 将这 5 秒的结果存入独立数组
+                        perclosData.push({
+                            timestamp: new Date().toISOString(),
+                            value: perclos
+                        });
+
+                        // 更新 UI，仅作为中性展示，不标红报警
+                        perclosValueEl.innerText = (perclos * 100).toFixed(1) + '%';
+                        perclosValueEl.className = 'text-lg font-mono font-bold text-blue-400';
+
+                        // 周期重置，准备记录下一个 5 秒
+                        currentEpochFrames = 0;
+                        currentEpochClosedFrames = 0;
+                        epochStartTime = now;
                     }
                 }
+
+                // --- 计算 MAR ---
+                const mar = calculateMAR(landmarks);
+                marValueEl.innerText = mar.toFixed(2);
+                marValueEl.className = `text-lg font-mono font-bold ${mar > MAR_THRESHOLD ? 'text-red-500' : 'text-green-400'}`;
+
+                if (mar > MAR_THRESHOLD && (now - lastYawnTime > 3000)) {
+                    triggerAlert(`检测到打哈欠！`, 'warning');
+                    recordEvent('b', mar.toFixed(2));
+                    lastYawnTime = now;
+                }
             } else {
-                earValueEl.innerText = "---";
-                marValueEl.innerText = "---";
-                earValueEl.className = marValueEl.className = "text-2xl font-mono font-bold text-gray-500";
+                earValueEl.innerText = "---"; marValueEl.innerText = "---"; perclosValueEl.innerText = "---";
             }
             canvasCtx.restore();
         }
 
-        // 初始化 MediaPipe
         async function initAI() {
             logList.innerHTML = `<li class="text-blue-400">[${new Date().toLocaleTimeString()}] 正在下载并加载模型...</li>`;
             
             faceMesh = new FaceMesh({locateFile: (file) => {
                 return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
             }});
-
             faceMesh.setOptions({
-                maxNumFaces: 1,
-                refineLandmarks: true, 
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
+                maxNumFaces: 1, refineLandmarks: true, 
+                minDetectionConfidence: 0.5, minTrackingConfidence: 0.5
             });
-
             faceMesh.onResults(onResults);
 
             camera = new Camera(videoElement, {
                 onFrame: async () => {
-                    await faceMesh.send({image: videoElement});
+                    // 【降频核心逻辑】每 100ms 投递一帧数据 (约10FPS)
+                    // 彻底降低长达一小时运行时的发热量和内存垃圾回收压力
+                    const now = Date.now();
+                    if (now - lastProcessTime >= PROCESS_INTERVAL_MS) {
+                        lastProcessTime = now;
+                        await faceMesh.send({image: videoElement});
+                    }
                 },
-                // 去除写死的 480x640，允许设备自己协商最佳前置分辨率，这在安卓端非常重要
                 facingMode: 'user' 
             });
         }
 
-        // 开始/停止逻辑
         toggleBtn.addEventListener('click', async () => {
             if (!isRunning) {
                 try {
+                    await requestWakeLock(); // 请求长测防休眠
+                    sessionStartTime = new Date();
+                    recordedEvents = [];
+                    perclosData = []; // 清空之前的独立占此数据
+                    epochStartTime = 0;
+                    currentEpochFrames = 0;
+                    currentEpochClosedFrames = 0;
+                    
                     loadingOverlay.classList.remove('hidden');
                     loadingOverlay.classList.add('flex');
                     toggleBtn.innerText = "停止检测";
@@ -386,29 +411,23 @@
                     isCalibrating = true;
                     calibrationStartTime = 0;
                     calibrationEARValues = [];
-                    earThresholdEl.innerText = "阈值: 待校准...";
+                    earThresholdEl.innerText = "待校准...";
 
-                    if (!faceMesh) {
-                        await initAI();
-                    }
+                    if (!faceMesh) await initAI();
                     await camera.start();
                     isRunning = true;
                 } catch (error) {
-                    triggerAlert("启动摄像头失败，请确保授予摄像头权限并在 HTTPS 环境下运行。", "critical");
-                    console.error(error);
+                    triggerAlert("启动摄像头失败，请重试。", "critical");
                     toggleBtn.innerText = "启动摄像头开始检测";
                     toggleBtn.className = "flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg";
                     loadingOverlay.classList.add('hidden');
                     loadingOverlay.classList.remove('flex');
                 }
             } else {
-                if (camera) {
-                    await camera.stop();
-                }
+                if (camera) await camera.stop();
+                releaseWakeLock(); // 解除防休眠
                 canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                earValueEl.innerText = "0.00";
-                marValueEl.innerText = "0.00";
-                earValueEl.className = marValueEl.className = "text-2xl font-mono font-bold text-green-400";
+                earValueEl.innerText = "0.00"; marValueEl.innerText = "0.00"; perclosValueEl.innerText = "0.0%";
                 toggleBtn.innerText = "启动摄像头开始检测";
                 toggleBtn.className = "flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg";
                 statusIndicator.innerText = "已停止";
@@ -418,31 +437,63 @@
             }
         });
 
-        // 导出数据逻辑
         exportBtn.addEventListener('click', () => {
-            if (recordedEvents.length === 0) {
+            if (recordedEvents.length === 0 && perclosData.length === 0) {
                 triggerAlert("目前没有记录到任何数据可供导出。", "info");
                 return;
             }
             
-            let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-            csvContent += "时间戳,事件类型,事件代号,数值(时长ms/幅度/MAR)\n";
+            const startStr = sessionStartTime ? sessionStartTime.toLocaleString() : "未知";
+            const exportStr = new Date().toLocaleString();
+            const fileTime = sessionStartTime ? sessionStartTime.getTime() : new Date().getTime();
+
+            // --- 导出 1：突发事件记录表 (单次闭眼, 哈欠, 运动) ---
+            if (recordedEvents.length > 0) {
+                let csv1 = "data:text/csv;charset=utf-8,\uFEFF";
+                csv1 += `本次测试启动时间:,${startStr}\n`;
+                csv1 += `数据执行导出时间:,${exportStr}\n`;
+                csv1 += `设定降频FPS:,10帧/秒\n\n`;
+                csv1 += "时间戳,事件类型,事件代号,数值详情(ms/幅度)\n";
+                
+                recordedEvents.forEach(e => {
+                    let eventName = "";
+                    switch(e.type) {
+                        case 'a': eventName = '单次长闭眼(时长ms)'; break;
+                        case 'b': eventName = '打哈欠(MAR)'; break;
+                        case 'c': eventName = '头部大幅度移动(位移)'; break;
+                    }
+                    csv1 += `${e.timestamp},${eventName},${e.type},${e.value}\n`;
+                });
+                downloadCSV(csv1, `fatigue_events_start_${fileTime}.csv`);
+            }
+
+            // --- 导出 2：严格 5 秒周期 PERCLOS 连续记录表 ---
+            if (perclosData.length > 0) {
+                let csv2 = "data:text/csv;charset=utf-8,\uFEFF";
+                csv2 += `本次测试启动时间:,${startStr}\n`;
+                csv2 += `数据执行导出时间:,${exportStr}\n`;
+                csv2 += `记录周期:,严格5秒平均\n\n`;
+                csv2 += "时间戳,5秒内闭眼占比(PERCLOS)\n";
+                
+                perclosData.forEach(p => {
+                    csv2 += `${p.timestamp},${p.value.toFixed(4)}\n`;
+                });
+                downloadCSV(csv2, `fatigue_perclos_5s_start_${fileTime}.csv`);
+            }
             
-            recordedEvents.forEach(e => {
-                let eventName = e.type === 'a' ? '闭眼时长' : (e.type === 'b' ? '打哈欠' : '头部大幅度移动');
-                csvContent += `${e.timestamp},${eventName},${e.type},${e.value}\n`;
-            });
-            
+            triggerAlert(`成功导出！分为 [事件日志] 与 [连续占比] 两个文件。`, "info");
+        });
+
+        // 辅助函数：触发浏览器下载
+        function downloadCSV(csvContent, filename) {
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `fatigue_data_${new Date().getTime()}.csv`);
+            link.setAttribute("download", filename);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            
-            triggerAlert(`成功导出 ${recordedEvents.length} 条测试数据！`, "info");
-        });
+        }
 
     </script>
 </body>
