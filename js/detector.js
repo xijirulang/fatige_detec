@@ -5,10 +5,15 @@ import {
     HEAD_MOVE_THRESHOLD,
     EYE_ALERT_COOLDOWN_MS,
     YAWN_ALERT_COOLDOWN_MS,
+    YAWN_MIN_DURATION_MS,
     HEAD_MOVE_ALERT_COOLDOWN_MS,
     CALIBRATION_DURATION_MS,
     CALIBRATION_MIN_SAMPLES,
     PERCLOS_EPOCH_MS,
+    BLINK_RATE_WINDOW_MS,
+    MIN_BLINK_DURATION_MS,
+    EAR_SMOOTH_WINDOW_SIZE,
+    MAR_SMOOTH_WINDOW_SIZE,
     RIGHT_EYE_INDICES,
     LEFT_EYE_INDICES
 } from './config.js';
@@ -28,16 +33,67 @@ export function createDetector({ dom, ui, storage }) {
 
     // PERCLOS 周期累计状态。
     let epochStartTime = 0;
-    let currentEpochFrames = 0;
-    let currentEpochClosedFrames = 0;
+    let perclosSamples = [];
 
     // 事件检测计时状态。
     let eyesClosedStartTime = 0;
     let isEyesClosed = false;
     let lastEyeAlertTime = 0;
     let lastYawnTime = 0;
+    let yawnOpenStartTime = 0;
+    let yawnTriggeredInCurrentOpen = false;
     let lastHeadMoveTime = 0;
     let lastNosePosition = null;
+    let blinkTimestamps = [];
+    let earSmoothWindow = [];
+    let marSmoothWindow = [];
+    let earSmoothWindowSize = EAR_SMOOTH_WINDOW_SIZE;
+    let marSmoothWindowSize = MAR_SMOOTH_WINDOW_SIZE;
+
+    // 对窗口参数做边界收敛，避免非法配置。
+    function clampWindowSize(value) {
+        return Math.min(30, Math.max(1, Math.round(value)));
+    }
+
+    // 将新样本加入窗口并返回当前窗口平均值。
+    function getMovingAverage(window, value, maxSize) {
+        window.push(value);
+        if (window.length > maxSize) {
+            window.shift();
+        }
+        const sum = window.reduce((acc, item) => acc + item, 0);
+        return sum / window.length;
+    }
+
+    // 仅保留统计窗口内的眨眼时间戳。
+    function pruneBlinkTimestamps(now) {
+        blinkTimestamps = blinkTimestamps.filter((t) => (now - t) <= BLINK_RATE_WINDOW_MS);
+    }
+
+    // 运行时更新平滑窗口大小。
+    function updateSmoothingWindowSizes({ earWindowSize, marWindowSize } = {}) {
+        if (typeof earWindowSize === 'number' && !Number.isNaN(earWindowSize)) {
+            earSmoothWindowSize = clampWindowSize(earWindowSize);
+            if (earSmoothWindow.length > earSmoothWindowSize) {
+                earSmoothWindow = earSmoothWindow.slice(-earSmoothWindowSize);
+            }
+        }
+
+        if (typeof marWindowSize === 'number' && !Number.isNaN(marWindowSize)) {
+            marSmoothWindowSize = clampWindowSize(marWindowSize);
+            if (marSmoothWindow.length > marSmoothWindowSize) {
+                marSmoothWindow = marSmoothWindow.slice(-marSmoothWindowSize);
+            }
+        }
+    }
+
+    // 获取当前平滑窗口配置。
+    function getSmoothingWindowSizes() {
+        return {
+            earWindowSize: earSmoothWindowSize,
+            marWindowSize: marSmoothWindowSize
+        };
+    }
 
     // 启动校准流程并重置校准采样。
     function startCalibration() {
@@ -49,15 +105,20 @@ export function createDetector({ dom, ui, storage }) {
     // 每次新会话前重置运行时状态。
     function resetSessionRuntime() {
         epochStartTime = 0;
-        currentEpochFrames = 0;
-        currentEpochClosedFrames = 0;
+        perclosSamples = [];
 
         eyesClosedStartTime = 0;
         isEyesClosed = false;
         lastEyeAlertTime = 0;
         lastYawnTime = 0;
+        yawnOpenStartTime = 0;
+        yawnTriggeredInCurrentOpen = false;
         lastHeadMoveTime = 0;
         lastNosePosition = null;
+        blinkTimestamps = [];
+        earSmoothWindow = [];
+        marSmoothWindow = [];
+        ui.setBlinkRate(0);
     }
 
     // 绘制眼睛和嘴部轮廓辅助线。
@@ -70,13 +131,21 @@ export function createDetector({ dom, ui, storage }) {
     // 检测头部位移并在超过阈值时记录事件。
     function handleHeadMove(landmarks, now) {
         const nose = landmarks[1];
+        const leftEyeOuter = landmarks[33];
+        const rightEyeOuter = landmarks[263];
+        const eyeDx = leftEyeOuter.x - rightEyeOuter.x;
+        const eyeDy = leftEyeOuter.y - rightEyeOuter.y;
+        const eyeDistance = Math.sqrt(eyeDx * eyeDx + eyeDy * eyeDy);
+
         if (lastNosePosition) {
             const dx = nose.x - lastNosePosition.x;
             const dy = nose.y - lastNosePosition.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > HEAD_MOVE_THRESHOLD && (now - lastHeadMoveTime > HEAD_MOVE_ALERT_COOLDOWN_MS)) {
+            const normalizedDistance = eyeDistance > 0 ? (distance / eyeDistance) : 0;
+
+            if (normalizedDistance > HEAD_MOVE_THRESHOLD && (now - lastHeadMoveTime > HEAD_MOVE_ALERT_COOLDOWN_MS)) {
                 ui.triggerAlert('检测到头部大幅度移动！', 'warning');
-                storage.recordEvent('c', distance.toFixed(3));
+                storage.recordEvent('c', normalizedDistance.toFixed(3));
                 lastHeadMoveTime = now;
             }
         }
@@ -87,7 +156,8 @@ export function createDetector({ dom, ui, storage }) {
     function handleCalibration(avgEAR, now) {
         if (calibrationStartTime === 0) {
             calibrationStartTime = now;
-            ui.triggerAlert('开始校准，请保持正常睁眼直视屏幕2秒...', 'info');
+            const calibrationSeconds = CALIBRATION_DURATION_MS / 1000;
+            ui.triggerAlert(`开始校准，请保持正常睁眼直视屏幕${calibrationSeconds}秒...`, 'info');
         }
 
         calibrationEARValues.push(avgEAR);
@@ -125,37 +195,60 @@ export function createDetector({ dom, ui, storage }) {
             const duration = now - eyesClosedStartTime;
             if (duration >= CLOSED_EYES_TIME) {
                 storage.recordEvent('a', duration);
+            } else if (duration >= MIN_BLINK_DURATION_MS) {
+                // 从闭眼切回睁眼且时长短于长闭眼阈值，记为一次合法眨眼。
+                blinkTimestamps.push(now);
             }
             isEyesClosed = false;
         }
 
+        pruneBlinkTimestamps(now);
+        const blinkRateCount = blinkTimestamps.length;
+        ui.setBlinkRate(blinkRateCount);
+
         if (epochStartTime === 0) epochStartTime = now;
 
-        currentEpochFrames++;
-        if (isClosed) currentEpochClosedFrames++;
+        perclosSamples.push({ timestamp: now, isClosed });
+        perclosSamples = perclosSamples.filter((sample) => (now - sample.timestamp) <= PERCLOS_EPOCH_MS);
+
+        const closedCount = perclosSamples.reduce((acc, sample) => acc + (sample.isClosed ? 1 : 0), 0);
+        const perclos = perclosSamples.length > 0 ? (closedCount / perclosSamples.length) : 0;
+        ui.setPERCLOS(perclos);
 
         if (now - epochStartTime >= PERCLOS_EPOCH_MS) {
-            const perclos = currentEpochFrames > 0 ? (currentEpochClosedFrames / currentEpochFrames) : 0;
-            storage.recordPerclos(perclos);
-            ui.setPERCLOS(perclos);
-
-            currentEpochFrames = 0;
-            currentEpochClosedFrames = 0;
+            storage.recordPerclosBlinkRate(perclos, blinkRateCount);
             epochStartTime = now;
         }
     }
 
     // 处理 MAR 与打哈欠告警。
-    function handleYawn(landmarks, now) {
-        const mar = calculateMAR(landmarks);
-        const isOpenWide = mar > MAR_THRESHOLD;
-        ui.setMARValue(mar, isOpenWide);
+    function handleYawn(smoothedMAR, now) {
+        const isOpenWide = smoothedMAR > MAR_THRESHOLD;
+        ui.setMARValue(smoothedMAR, isOpenWide);
 
-        if (isOpenWide && (now - lastYawnTime > YAWN_ALERT_COOLDOWN_MS)) {
-            ui.triggerAlert('检测到打哈欠！', 'warning');
-            storage.recordEvent('b', mar.toFixed(2));
-            lastYawnTime = now;
+        if (isOpenWide) {
+            if (yawnOpenStartTime === 0) {
+                yawnOpenStartTime = now;
+                yawnTriggeredInCurrentOpen = false;
+                return;
+            }
+
+            const openDuration = now - yawnOpenStartTime;
+            if (
+                !yawnTriggeredInCurrentOpen
+                && openDuration >= YAWN_MIN_DURATION_MS
+                && (now - lastYawnTime > YAWN_ALERT_COOLDOWN_MS)
+            ) {
+                ui.triggerAlert('检测到打哈欠！', 'warning');
+                storage.recordEvent('b', smoothedMAR.toFixed(2));
+                lastYawnTime = now;
+                yawnTriggeredInCurrentOpen = true;
+            }
+            return;
         }
+
+        yawnOpenStartTime = 0;
+        yawnTriggeredInCurrentOpen = false;
     }
 
     // FaceMesh 每帧结果入口。
@@ -180,14 +273,17 @@ export function createDetector({ dom, ui, storage }) {
             const rightEAR = calculateEAR(landmarks, RIGHT_EYE_INDICES);
             const leftEAR = calculateEAR(landmarks, LEFT_EYE_INDICES);
             const avgEAR = (rightEAR + leftEAR) / 2.0;
+            const smoothedEAR = getMovingAverage(earSmoothWindow, avgEAR, earSmoothWindowSize);
+            const mar = calculateMAR(landmarks);
+            const smoothedMAR = getMovingAverage(marSmoothWindow, mar, marSmoothWindowSize);
 
             if (isCalibrating) {
-                handleCalibration(avgEAR, now);
+                handleCalibration(smoothedEAR, now);
             } else {
-                handleEyeAndPerclos(avgEAR, now);
+                handleEyeAndPerclos(smoothedEAR, now);
             }
 
-            handleYawn(landmarks, now);
+            handleYawn(smoothedMAR, now);
         } else {
             ui.setNoFaceMetrics();
         }

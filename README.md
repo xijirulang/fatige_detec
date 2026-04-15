@@ -1,6 +1,6 @@
 # fatigue-detection
 
-基于浏览器摄像头 + MediaPipe Face Mesh 的疲劳检测 Demo，支持：
+基于浏览器摄像头 + MediaPipe Face Mesh 的疲劳检测项目，支持：
 
 - EAR（闭眼比）动态校准与实时检测
 - MAR（哈欠比）检测

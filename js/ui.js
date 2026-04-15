@@ -121,6 +121,13 @@ export function createUI(dom) {
         dom.perclosValueEl.className = 'text-lg font-mono font-bold text-blue-400';
     }
 
+    // 预留眨眼频率显示接口：统计过去 60 秒内的眨眼次数。
+    function setBlinkRate(count) {
+        if (!dom.blinkRateEl) return;
+        dom.blinkRateEl.innerText = `${count}`;
+        dom.blinkRateEl.className = 'text-lg font-mono font-bold text-cyan-400';
+    }
+
     // 未检测到人脸时的占位显示。
     function setNoFaceMetrics() {
         dom.earValueEl.innerText = '---';
@@ -133,6 +140,7 @@ export function createUI(dom) {
         dom.earValueEl.innerText = '0.00';
         dom.marValueEl.innerText = '0.00';
         dom.perclosValueEl.innerText = '0.0%';
+        setBlinkRate(0);
     }
 
     return {
@@ -147,6 +155,7 @@ export function createUI(dom) {
         setEARThreshold,
         setMARValue,
         setPERCLOS,
+        setBlinkRate,
         setNoFaceMetrics,
         resetMetrics
     };

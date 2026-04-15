@@ -21,6 +21,8 @@ export function getDomElements() {
         marValueEl: document.getElementById('marValue'),
         // PERCLOS 数值显示。
         perclosValueEl: document.getElementById('perclosValue'),
+        // 眨眼频率显示（过去 60 秒眨眼次数，可选）。
+        blinkRateEl: document.getElementById('blinkRateValue'),
         // 日志列表容器。
         logList: document.getElementById('logList'),
         // 导出按钮。

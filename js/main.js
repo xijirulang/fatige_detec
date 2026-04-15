@@ -96,5 +96,5 @@ dom.exportBtn.addEventListener('click', () => {
     }
 
     storage.exportAll();
-    ui.triggerAlert('成功导出！分为 [事件日志] 与 [连续占比] 两个文件。', 'info');
+    ui.triggerAlert('成功导出！分为 [疲劳事件] 与 [60秒PERCLOS+BlinkRate] 两个文件。', 'info');
 });
