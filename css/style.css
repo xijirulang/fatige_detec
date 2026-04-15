@@ -1,0 +1,31 @@
+@keyframes flash-red {
+    0% { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
+    50% { background-color: rgba(239, 68, 68, 0.6); border-color: rgba(239, 68, 68, 1); }
+    100% { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
+}
+
+.warning-flash {
+    animation: flash-red 1s infinite;
+}
+
+.canvas-container {
+    position: relative;
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: #1f2937;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 2px solid #374151;
+}
+
+canvas {
+    width: 100%;
+    height: auto;
+    max-height: 50vh;
+    object-fit: contain;
+    transform: scaleX(-1);
+}

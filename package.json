@@ -1,0 +1,14 @@
+{
+  "name": "fatigue-detection",
+  "version": "1.0.0",
+  "private": true,
+  "description": "基于 MediaPipe Face Mesh 的面部疲劳检测 ",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

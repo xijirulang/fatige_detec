@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>面部疲劳检测系统</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 MediaPipe 核心库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script type="module" crossorigin src="/assets/index-CGqktj3b.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BdRBcRhZ.css">
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col font-sans">
+
+    <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center z-10 shrink-0">
+        <h1 class="text-xl font-bold tracking-wider">疲劳检测</h1>
+        <div id="statusIndicator" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-600">未启动</div>
+    </header>
+
+    <main class="flex-1 flex flex-col p-4 w-full max-w-lg mx-auto space-y-4 overflow-y-auto">
+        
+        <div id="screenContainer" class="canvas-container shadow-lg transition-colors duration-300">
+            <video id="inputVideo" playsinline autoplay muted class="hidden"></video>
+            <canvas id="outputCanvas"></canvas>
+            
+            <div id="loadingOverlay" class="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-80 z-10 hidden">
+                <div class="text-center">
+                    <div class="inline-block animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mb-2"></div>
+                    <p class="text-sm text-gray-300">正在加载模型...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 实时数据面板 (改为三列，加入 PERCLOS) -->
+        <div class="grid grid-cols-3 gap-2 shrink-0">
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">闭眼(EAR)</span>
+                <span id="earValue" class="text-lg font-mono font-bold text-green-400">0.00</span>
+                <span id="earThresholdEl" class="text-gray-500 text-[9px] mt-1 text-center w-full truncate">待校准</span>
+            </div>
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">哈欠(MAR)</span>
+                <span id="marValue" class="text-lg font-mono font-bold text-green-400">0.00</span>
+                <span class="text-gray-500 text-[9px] mt-1">阈值: > 0.50</span>
+            </div>
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">闭眼占比</span>
+                <span id="perclosValue" class="text-lg font-mono font-bold text-blue-400">0.0%</span>
+            
+            </div>
+        </div>
+
+        <div class="flex space-x-2 shrink-0">
+            <button id="toggleBtn" class="flex-1 py-4 rounded-xl text-lg font-bold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 transition-colors shadow-lg">
+                启动摄像头开始检测
+            </button>
+            <button id="exportBtn" class="hidden px-4 py-4 rounded-xl text-lg font-bold bg-green-600 hover:bg-green-500 active:bg-green-700 transition-colors shadow-lg">
+                导出日志
+            </button>
+        </div>
+
+        <div class="flex-1 min-h-[120px] bg-gray-800 rounded-lg p-3 overflow-hidden flex flex-col shadow-inner">
+            <h2 class="text-sm text-gray-400 border-b border-gray-700 pb-2 mb-2">系统日志</h2>
+            <ul id="logList" class="flex-1 overflow-y-auto text-xs space-y-2 font-mono text-gray-300 pr-2">
+                <li class="text-gray-500">等待启动...</li>
+            </ul>
+        </div>
+    </main>
+
+</body>
+</html>
