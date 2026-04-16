@@ -107,7 +107,7 @@ $$
 
 为平衡性能与发热，采用降频送帧：
 
-- `PROCESS_INTERVAL_MS = 33ms`，约 30 FPS 算法处理频率。
+- `PROCESS_FPS = 20`，对应 `PROCESS_INTERVAL_MS = 50ms` 的算法处理频率。
 
 ### 6.2 信号平滑（Moving Average）
 
@@ -164,7 +164,7 @@ $$
 MAR_{smooth} > MAR\_THRESHOLD
 $$
 
-其中 `MAR_THRESHOLD = 0.5`。
+其中 `MAR_THRESHOLD = 0.4`。
 
 为降低说话、大笑、唱歌造成的瞬时误报，增加持续时长约束：
 
@@ -260,7 +260,8 @@ $$
 
 | 参数名                      | 默认值 | 含义                             |
 | --------------------------- | -----: | -------------------------------- |
-| PROCESS_INTERVAL_MS         |     33 | 算法处理帧间隔（ms）             |
+| PROCESS_FPS                 |     20 | 标准化采集/处理帧率（FPS）       |
+| PROCESS_INTERVAL_MS         |     50 | 算法处理帧间隔（ms）             |
 | EAR_RATIO_THRESHOLD         |    0.6 | 个体基准 EAR 的闭眼比例阈值      |
 | MAR_THRESHOLD               |    0.5 | 打哈欠判定阈值                   |
 | CLOSED_EYES_TIME            |   1000 | 长闭眼最小时长（ms）             |

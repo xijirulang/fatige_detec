@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  <script type="module" crossorigin src="/assets/index-CGqktj3b.js"></script>
+  <script type="module" crossorigin src="/assets/index-zAY_Tu_W.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-BdRBcRhZ.css">
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex flex-col font-sans">
@@ -35,8 +35,8 @@
             </div>
         </div>
 
-        <!-- 实时数据面板 (改为三列，加入 PERCLOS) -->
-        <div class="grid grid-cols-3 gap-2 shrink-0">
+        <!-- 实时数据面板 -->
+        <div class="grid grid-cols-4 gap-2 shrink-0">
             <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
                 <span class="text-gray-400 text-[11px] mb-1">闭眼(EAR)</span>
                 <span id="earValue" class="text-lg font-mono font-bold text-green-400">0.00</span>
@@ -50,7 +50,10 @@
             <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
                 <span class="text-gray-400 text-[11px] mb-1">闭眼占比</span>
                 <span id="perclosValue" class="text-lg font-mono font-bold text-blue-400">0.0%</span>
-            
+            </div>
+            <div class="bg-gray-800 p-2 rounded-lg flex flex-col items-center shadow-inner">
+                <span class="text-gray-400 text-[11px] mb-1">眨眼/60s</span>
+                <span id="blinkRateValue" class="text-lg font-mono font-bold text-cyan-400">0</span>
             </div>
         </div>
 

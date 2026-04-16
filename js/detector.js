@@ -12,8 +12,6 @@ import {
     PERCLOS_EPOCH_MS,
     BLINK_RATE_WINDOW_MS,
     MIN_BLINK_DURATION_MS,
-    EAR_SMOOTH_WINDOW_SIZE,
-    MAR_SMOOTH_WINDOW_SIZE,
     RIGHT_EYE_INDICES,
     LEFT_EYE_INDICES
 } from './config.js';
@@ -45,54 +43,10 @@ export function createDetector({ dom, ui, storage }) {
     let lastHeadMoveTime = 0;
     let lastNosePosition = null;
     let blinkTimestamps = [];
-    let earSmoothWindow = [];
-    let marSmoothWindow = [];
-    let earSmoothWindowSize = EAR_SMOOTH_WINDOW_SIZE;
-    let marSmoothWindowSize = MAR_SMOOTH_WINDOW_SIZE;
-
-    // 对窗口参数做边界收敛，避免非法配置。
-    function clampWindowSize(value) {
-        return Math.min(30, Math.max(1, Math.round(value)));
-    }
-
-    // 将新样本加入窗口并返回当前窗口平均值。
-    function getMovingAverage(window, value, maxSize) {
-        window.push(value);
-        if (window.length > maxSize) {
-            window.shift();
-        }
-        const sum = window.reduce((acc, item) => acc + item, 0);
-        return sum / window.length;
-    }
 
     // 仅保留统计窗口内的眨眼时间戳。
     function pruneBlinkTimestamps(now) {
         blinkTimestamps = blinkTimestamps.filter((t) => (now - t) <= BLINK_RATE_WINDOW_MS);
-    }
-
-    // 运行时更新平滑窗口大小。
-    function updateSmoothingWindowSizes({ earWindowSize, marWindowSize } = {}) {
-        if (typeof earWindowSize === 'number' && !Number.isNaN(earWindowSize)) {
-            earSmoothWindowSize = clampWindowSize(earWindowSize);
-            if (earSmoothWindow.length > earSmoothWindowSize) {
-                earSmoothWindow = earSmoothWindow.slice(-earSmoothWindowSize);
-            }
-        }
-
-        if (typeof marWindowSize === 'number' && !Number.isNaN(marWindowSize)) {
-            marSmoothWindowSize = clampWindowSize(marWindowSize);
-            if (marSmoothWindow.length > marSmoothWindowSize) {
-                marSmoothWindow = marSmoothWindow.slice(-marSmoothWindowSize);
-            }
-        }
-    }
-
-    // 获取当前平滑窗口配置。
-    function getSmoothingWindowSizes() {
-        return {
-            earWindowSize: earSmoothWindowSize,
-            marWindowSize: marSmoothWindowSize
-        };
     }
 
     // 启动校准流程并重置校准采样。
@@ -116,8 +70,6 @@ export function createDetector({ dom, ui, storage }) {
         lastHeadMoveTime = 0;
         lastNosePosition = null;
         blinkTimestamps = [];
-        earSmoothWindow = [];
-        marSmoothWindow = [];
         ui.setBlinkRate(0);
     }
 
@@ -273,17 +225,15 @@ export function createDetector({ dom, ui, storage }) {
             const rightEAR = calculateEAR(landmarks, RIGHT_EYE_INDICES);
             const leftEAR = calculateEAR(landmarks, LEFT_EYE_INDICES);
             const avgEAR = (rightEAR + leftEAR) / 2.0;
-            const smoothedEAR = getMovingAverage(earSmoothWindow, avgEAR, earSmoothWindowSize);
             const mar = calculateMAR(landmarks);
-            const smoothedMAR = getMovingAverage(marSmoothWindow, mar, marSmoothWindowSize);
 
             if (isCalibrating) {
-                handleCalibration(smoothedEAR, now);
+                handleCalibration(avgEAR, now);
             } else {
-                handleEyeAndPerclos(smoothedEAR, now);
+                handleEyeAndPerclos(avgEAR, now);
             }
 
-            handleYawn(smoothedMAR, now);
+            handleYawn(mar, now);
         } else {
             ui.setNoFaceMetrics();
         }
