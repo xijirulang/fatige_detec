@@ -12,6 +12,8 @@ import {
     PERCLOS_EPOCH_MS,
     BLINK_RATE_WINDOW_MS,
     MIN_BLINK_DURATION_MS,
+    EAR_SMOOTH_WINDOW_SIZE,
+    MAR_SMOOTH_WINDOW_SIZE,
     RIGHT_EYE_INDICES,
     LEFT_EYE_INDICES
 } from './config.js';
@@ -43,6 +45,18 @@ export function createDetector({ dom, ui, storage }) {
     let lastHeadMoveTime = 0;
     let lastNosePosition = null;
     let blinkTimestamps = [];
+    let earWindow = [];
+    let marWindow = [];
+
+    // 维护定长滑动窗口并返回当前均值。
+    function pushAndGetAverage(windowValues, value, maxSize) {
+        windowValues.push(value);
+        if (windowValues.length > maxSize) {
+            windowValues.shift();
+        }
+        const sum = windowValues.reduce((acc, current) => acc + current, 0);
+        return windowValues.length > 0 ? (sum / windowValues.length) : value;
+    }
 
     // 仅保留统计窗口内的眨眼时间戳。
     function pruneBlinkTimestamps(now) {
@@ -54,6 +68,8 @@ export function createDetector({ dom, ui, storage }) {
         isCalibrating = true;
         calibrationStartTime = 0;
         calibrationEARValues = [];
+        earWindow = [];
+        marWindow = [];
     }
 
     // 每次新会话前重置运行时状态。
@@ -70,6 +86,8 @@ export function createDetector({ dom, ui, storage }) {
         lastHeadMoveTime = 0;
         lastNosePosition = null;
         blinkTimestamps = [];
+        earWindow = [];
+        marWindow = [];
         ui.setBlinkRate(0);
     }
 
@@ -121,6 +139,7 @@ export function createDetector({ dom, ui, storage }) {
             baselineEAR = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
             currentEarThreshold = baselineEAR * EAR_RATIO_THRESHOLD;
 
+            storage.markLoggingStart(now);
             ui.setEARThreshold(baselineEAR);
             ui.triggerAlert(`校准完成！闭眼阈值设为 < ${currentEarThreshold.toFixed(2)}`, 'info');
             isCalibrating = false;
@@ -226,14 +245,16 @@ export function createDetector({ dom, ui, storage }) {
             const leftEAR = calculateEAR(landmarks, LEFT_EYE_INDICES);
             const avgEAR = (rightEAR + leftEAR) / 2.0;
             const mar = calculateMAR(landmarks);
+            const smoothedEAR = pushAndGetAverage(earWindow, avgEAR, EAR_SMOOTH_WINDOW_SIZE);
+            const smoothedMAR = pushAndGetAverage(marWindow, mar, MAR_SMOOTH_WINDOW_SIZE);
 
             if (isCalibrating) {
-                handleCalibration(avgEAR, now);
+                handleCalibration(smoothedEAR, now);
             } else {
-                handleEyeAndPerclos(avgEAR, now);
+                handleEyeAndPerclos(smoothedEAR, now);
             }
 
-            handleYawn(mar, now);
+            handleYawn(smoothedMAR, now);
         } else {
             ui.setNoFaceMetrics();
         }

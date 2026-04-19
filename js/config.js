@@ -35,7 +35,7 @@ export const BLINK_RATE_WINDOW_MS = 60000;
 export const MIN_BLINK_DURATION_MS = 60;
 
 // EAR 滑动平均窗口大小（帧数）。
-export const EAR_SMOOTH_WINDOW_SIZE = 5;
+export const EAR_SMOOTH_WINDOW_SIZE = 1;
 // MAR 滑动平均窗口大小（帧数）。
 export const MAR_SMOOTH_WINDOW_SIZE = 5;
 

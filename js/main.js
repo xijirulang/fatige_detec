@@ -68,6 +68,7 @@ async function stopDetection() {
     const canvasCtx = dom.canvasElement.getContext('2d');
     canvasCtx.clearRect(0, 0, dom.canvasElement.width, dom.canvasElement.height);
 
+    storage.markLoggingEnd();
     ui.resetMetrics();
     ui.setStoppedState();
     isRunning = false;
