@@ -1,6 +1,10 @@
-import { downloadCSV } from './utils.js';
+import {
+    DATA_PRUNE_INTERVAL_MS,
+    DATA_RETENTION_HOURS
+} from './config.js';
+import { downloadJSONL } from './utils.js';
 
-// 管理会话期数据记录与 CSV 导出。
+// 管理会话期数据记录与 JSONL 导出。
 export function createStorage() {
     // 本次检测启动时间。
     let sessionStartTime = null;
@@ -12,6 +16,10 @@ export function createStorage() {
     let recordedEvents = [];
     // 60 秒聚合记录：PERCLOS + BlinkRate。
     let perclosBlinkRateData = [];
+    // 每秒关键指标记录。
+    let perSecondSamples = [];
+    // 上次执行滚动裁剪时间。
+    let lastPruneTime = 0;
 
     // 统一格式化为北京时间。
     function formatBeijingTimestamp(date = new Date()) {
@@ -37,9 +45,12 @@ export function createStorage() {
         return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}:${partMap.second}.${ms}`;
     }
 
-    // 防止表格软件自动改写时间格式，按文本导出。
-    function toCsvText(value) {
-        return `'${value}`;
+    // 统一构建带双时间戳的记录。
+    function createTimestampEntry(timestampMs) {
+        return {
+            timestampMs,
+            timestamp: formatBeijingTimestamp(new Date(timestampMs))
+        };
     }
 
     // 生成用于文件名的北京时间（无特殊字符）。
@@ -72,6 +83,8 @@ export function createStorage() {
         loggingEndTime = null;
         recordedEvents = [];
         perclosBlinkRateData = [];
+        perSecondSamples = [];
+        lastPruneTime = 0;
     }
 
     // 标记日志记录开始时间（校准完成）。
@@ -87,77 +100,128 @@ export function createStorage() {
     }
 
     // 记录一次离散事件。
-    function recordEvent(type, value) {
+    function maybePrune(nowMs) {
+        if (lastPruneTime !== 0 && (nowMs - lastPruneTime) < DATA_PRUNE_INTERVAL_MS) {
+            return;
+        }
+
+        const retentionWindowMs = DATA_RETENTION_HOURS * 60 * 60 * 1000;
+        const cutoffMs = nowMs - retentionWindowMs;
+
+        recordedEvents = recordedEvents.filter((item) => item.timestampMs >= cutoffMs);
+        perclosBlinkRateData = perclosBlinkRateData.filter((item) => item.timestampMs >= cutoffMs);
+        perSecondSamples = perSecondSamples.filter((item) => item.timestampMs >= cutoffMs);
+        lastPruneTime = nowMs;
+    }
+
+    // 记录一次离散事件。
+    function recordEvent(type, value, timestampMs = Date.now()) {
         if (!loggingStartTime) {
             return;
         }
 
+        maybePrune(timestampMs);
+        const base = createTimestampEntry(timestampMs);
         recordedEvents.push({
-            timestamp: toCsvText(formatBeijingTimestamp()),
+            ...base,
             type,
             value
         });
     }
 
     // 记录一个 60 秒聚合样本（PERCLOS + BlinkRate）。
-    function recordPerclosBlinkRate(perclos, blinkRate) {
+    function recordPerclosBlinkRate(perclos, blinkRate, timestampMs = Date.now()) {
         if (!loggingStartTime) {
             return;
         }
 
+        maybePrune(timestampMs);
+        const base = createTimestampEntry(timestampMs);
         perclosBlinkRateData.push({
-            timestamp: toCsvText(formatBeijingTimestamp()),
+            ...base,
             perclos,
             blinkRate
         });
     }
 
-    // 判断是否有可导出的数据。
-    function hasData() {
-        return recordedEvents.length > 0 || perclosBlinkRateData.length > 0;
+    // 记录每秒关键指标样本。
+    function recordPerSecondSample(sample, timestampMs = Date.now()) {
+        if (!loggingStartTime) {
+            return;
+        }
+
+        maybePrune(timestampMs);
+        const base = createTimestampEntry(timestampMs);
+        perSecondSamples.push({
+            ...base,
+            ...sample
+        });
     }
 
-    // 导出事件日志与 60 秒聚合指标两类 CSV 文件。
+    // 判断是否有可导出的数据。
+    function hasData() {
+        return recordedEvents.length > 0 || perclosBlinkRateData.length > 0 || perSecondSamples.length > 0;
+    }
+
+    // 导出为 JSON Lines（NDJSON），便于长时流式解析。
     function exportAll() {
         if (!hasData()) {
             return false;
         }
 
-        const startStr = loggingStartTime ? toCsvText(formatBeijingTimestamp(loggingStartTime)) : '未知';
-        const endStr = loggingEndTime ? toCsvText(formatBeijingTimestamp(loggingEndTime)) : '未停止';
+        const startStr = loggingStartTime ? formatBeijingTimestamp(loggingStartTime) : null;
+        const endStr = loggingEndTime ? formatBeijingTimestamp(loggingEndTime) : null;
         const fileTime = formatBeijingFilenameTime(sessionStartTime || new Date());
 
-        let csv = 'data:text/csv;charset=utf-8,\uFEFF';
-        csv += `日志开始时间(校准完成):,${startStr}\n`;
-        csv += `日志结束时间(停止检测):,${endStr}\n`;
-        csv += '事件日志,,,,,60秒聚合指标,,\n';
-        csv += '时间戳,事件类型,事件代号,数值详情(ms/幅度),,时间戳,60秒内闭眼占比(PERCLOS),60秒内眨眼次数(BlinkRate)\n';
-
-        const rowCount = Math.max(recordedEvents.length, perclosBlinkRateData.length);
-        for (let i = 0; i < rowCount; i += 1) {
-            const e = recordedEvents[i];
-            const m = perclosBlinkRateData[i];
-
-            let eventCols = ',,,';
-            if (e) {
-                let eventName = '';
-                switch (e.type) {
-                    case 'a': eventName = '单次长闭眼(时长ms)'; break;
-                    case 'b': eventName = '打哈欠(MAR)'; break;
-                    case 'c': eventName = '头部大幅度移动(位移)'; break;
-                }
-                eventCols = `${e.timestamp},${eventName},${e.type},${e.value}`;
+        const lines = [];
+        lines.push(JSON.stringify({
+            type: 'session',
+            sessionStartTime: sessionStartTime ? formatBeijingTimestamp(sessionStartTime) : null,
+            loggingStartTime: startStr,
+            loggingEndTime: endStr,
+            exportedAt: formatBeijingTimestamp(),
+            retentionHours: DATA_RETENTION_HOURS,
+            counters: {
+                events: recordedEvents.length,
+                perSecondSamples: perSecondSamples.length,
+                perclosEpochs: perclosBlinkRateData.length
             }
+        }));
 
-            let metricCols = ',,';
-            if (m) {
-                metricCols = `${m.timestamp},${m.perclos.toFixed(4)},${m.blinkRate}`;
-            }
+        recordedEvents.forEach((event) => {
+            lines.push(JSON.stringify({
+                type: 'event',
+                timestampMs: event.timestampMs,
+                timestamp: event.timestamp,
+                eventType: event.type,
+                value: event.value
+            }));
+        });
 
-            csv += `${eventCols},,${metricCols}\n`;
-        }
+        perSecondSamples.forEach((sample) => {
+            lines.push(JSON.stringify({
+                type: 'perSecond',
+                ...sample
+            }));
+        });
 
-        downloadCSV(csv, `${fileTime}_summary.csv`);
+        perclosBlinkRateData.forEach((metric) => {
+            lines.push(JSON.stringify({
+                type: 'perclosMinute',
+                timestampMs: metric.timestampMs,
+                timestamp: metric.timestamp,
+                perclos: metric.perclos,
+                blinkRate: metric.blinkRate
+            }));
+        });
+
+        lines.push(JSON.stringify({
+            type: 'sessionEnd',
+            loggingEndTime: endStr,
+            exportedAt: formatBeijingTimestamp()
+        }));
+
+        downloadJSONL(`${lines.join('\n')}\n`, `${fileTime}_summary.jsonl`);
 
         return true;
     }
@@ -168,6 +232,7 @@ export function createStorage() {
         markLoggingEnd,
         recordEvent,
         recordPerclosBlinkRate,
+        recordPerSecondSample,
         hasData,
         exportAll
     };

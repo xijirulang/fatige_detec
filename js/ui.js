@@ -1,8 +1,25 @@
-import { LOG_MAX_ITEMS } from './config.js';
+import { LOG_MAX_ITEMS, UI_UPDATE_INTERVAL_MS } from './config.js';
 import { getNowTimeText } from './utils.js';
 
 // 负责页面状态、日志与指标展示的 UI 控制器。
 export function createUI(dom) {
+    const metricRenderTimes = {
+        ear: 0,
+        mar: 0,
+        perclos: 0,
+        blink: 0
+    };
+
+    function shouldRenderMetric(metricKey, force = false) {
+        if (force) return true;
+        const now = Date.now();
+        if ((now - metricRenderTimes[metricKey]) < UI_UPDATE_INTERVAL_MS) {
+            return false;
+        }
+        metricRenderTimes[metricKey] = now;
+        return true;
+    }
+
     // 在日志顶部插入一条记录并限制最大条数。
     function prependLog(html) {
         const li = document.createElement('li');
@@ -94,12 +111,14 @@ export function createUI(dom) {
 
     // 校准阶段的 EAR 显示样式。
     function setCalibrationEAR(ear) {
+        if (!shouldRenderMetric('ear')) return;
         dom.earValueEl.innerText = ear.toFixed(2);
         dom.earValueEl.className = 'text-lg font-mono font-bold text-yellow-400';
     }
 
     // 常规检测阶段 EAR 显示与颜色。
-    function setEARValue(ear, isClosed) {
+    function setEARValue(ear, isClosed, force = false) {
+        if (!shouldRenderMetric('ear', force)) return;
         dom.earValueEl.innerText = ear.toFixed(2);
         dom.earValueEl.className = `text-lg font-mono font-bold ${isClosed ? 'text-red-500' : 'text-green-400'}`;
     }
@@ -110,20 +129,23 @@ export function createUI(dom) {
     }
 
     // 显示 MAR 值与颜色。
-    function setMARValue(mar, isOpenWide) {
+    function setMARValue(mar, isOpenWide, force = false) {
+        if (!shouldRenderMetric('mar', force)) return;
         dom.marValueEl.innerText = mar.toFixed(2);
         dom.marValueEl.className = `text-lg font-mono font-bold ${isOpenWide ? 'text-red-500' : 'text-green-400'}`;
     }
 
     // 显示 PERCLOS 百分比。
-    function setPERCLOS(perclos) {
+    function setPERCLOS(perclos, force = false) {
+        if (!shouldRenderMetric('perclos', force)) return;
         dom.perclosValueEl.innerText = `${(perclos * 100).toFixed(1)}%`;
         dom.perclosValueEl.className = 'text-lg font-mono font-bold text-blue-400';
     }
 
     // 预留眨眼频率显示接口：统计过去 60 秒内的眨眼次数。
-    function setBlinkRate(count) {
+    function setBlinkRate(count, force = false) {
         if (!dom.blinkRateEl) return;
+        if (!shouldRenderMetric('blink', force)) return;
         dom.blinkRateEl.innerText = `${count}`;
         dom.blinkRateEl.className = 'text-lg font-mono font-bold text-cyan-400';
     }
@@ -137,10 +159,10 @@ export function createUI(dom) {
 
     // 停止检测时重置指标显示。
     function resetMetrics() {
-        dom.earValueEl.innerText = '0.00';
-        dom.marValueEl.innerText = '0.00';
-        dom.perclosValueEl.innerText = '0.0%';
-        setBlinkRate(0);
+        setEARValue(0, false, true);
+        setMARValue(0, false, true);
+        setPERCLOS(0, true);
+        setBlinkRate(0, true);
     }
 
     return {

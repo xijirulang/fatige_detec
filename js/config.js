@@ -2,6 +2,14 @@
 export const PROCESS_FPS = 20;
 // 处理帧间隔（毫秒），20FPS 对应 50ms。
 export const PROCESS_INTERVAL_MS = Math.round(1000 / PROCESS_FPS);
+// 关键指标秒级采样间隔（毫秒）。
+export const SECOND_SAMPLE_INTERVAL_MS = 1000;
+// 存储层执行滚动窗口裁剪的最小间隔（毫秒）。
+export const DATA_PRUNE_INTERVAL_MS = 30000;
+// 内存中保留最近 N 小时数据，保证长时间运行稳定。
+export const DATA_RETENTION_HOURS = 8;
+// UI 指标刷新限频间隔（毫秒）。
+export const UI_UPDATE_INTERVAL_MS = 150;
 
 // EAR 计算后与基准值比值阈值（低于该比例视为闭眼）。
 export const EAR_RATIO_THRESHOLD = 0.6;

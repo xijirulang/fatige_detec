@@ -28,13 +28,20 @@ export function getNowTimeText() {
     return new Date().toLocaleTimeString();
 }
 
-// 触发浏览器下载 CSV 文件。
-export function downloadCSV(csvContent, filename) {
-    const encodedUri = encodeURI(csvContent);
+// 触发浏览器下载文本文件。
+export function downloadTextFile(textContent, filename, mimeType = 'text/plain;charset=utf-8') {
+    const blob = new Blob([textContent], { type: mimeType });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+// 触发浏览器下载 JSON Lines 文件。
+export function downloadJSONL(linesText, filename) {
+    downloadTextFile(linesText, filename, 'application/x-ndjson;charset=utf-8');
 }

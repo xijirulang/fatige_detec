@@ -10,6 +10,7 @@ import {
     CALIBRATION_DURATION_MS,
     CALIBRATION_MIN_SAMPLES,
     PERCLOS_EPOCH_MS,
+    SECOND_SAMPLE_INTERVAL_MS,
     BLINK_RATE_WINDOW_MS,
     MIN_BLINK_DURATION_MS,
     EAR_SMOOTH_WINDOW_SIZE,
@@ -34,6 +35,7 @@ export function createDetector({ dom, ui, storage }) {
     // PERCLOS 周期累计状态。
     let epochStartTime = 0;
     let perclosSamples = [];
+    let closedSampleCount = 0;
 
     // 事件检测计时状态。
     let eyesClosedStartTime = 0;
@@ -47,6 +49,76 @@ export function createDetector({ dom, ui, storage }) {
     let blinkTimestamps = [];
     let earWindow = [];
     let marWindow = [];
+    let secondBucket = null;
+    let currentSecondSlot = 0;
+
+    function createSecondBucket() {
+        return {
+            frameCount: 0,
+            earSum: 0,
+            marSum: 0,
+            closedCount: 0,
+            blinkDelta: 0,
+            headMovePeak: 0,
+            headMoveSum: 0,
+            eyeAlertCount: 0,
+            yawnAlertCount: 0,
+            headMoveAlertCount: 0,
+            lastPerclos: 0,
+            lastBlinkRate: 0
+        };
+    }
+
+    function resetSecondSampling() {
+        secondBucket = createSecondBucket();
+        currentSecondSlot = 0;
+    }
+
+    function flushSecondSample(timestampMs) {
+        if (!secondBucket || secondBucket.frameCount === 0) {
+            return;
+        }
+
+        const frameCount = secondBucket.frameCount;
+        storage.recordPerSecondSample({
+            earAvg: secondBucket.earSum / frameCount,
+            marAvg: secondBucket.marSum / frameCount,
+            closedRatio: secondBucket.closedCount / frameCount,
+            blinkDelta: secondBucket.blinkDelta,
+            headMovePeak: secondBucket.headMovePeak,
+            headMoveAvg: secondBucket.headMoveSum / frameCount,
+            perclos: secondBucket.lastPerclos,
+            blinkRate: secondBucket.lastBlinkRate,
+            eyeAlerts: secondBucket.eyeAlertCount,
+            yawnAlerts: secondBucket.yawnAlertCount,
+            headMoveAlerts: secondBucket.headMoveAlertCount
+        }, timestampMs);
+
+        secondBucket = createSecondBucket();
+    }
+
+    function updateSecondSampling(metrics, now) {
+        const secondSlot = Math.floor(now / SECOND_SAMPLE_INTERVAL_MS);
+        if (currentSecondSlot === 0) {
+            currentSecondSlot = secondSlot;
+        } else if (secondSlot !== currentSecondSlot) {
+            flushSecondSample(currentSecondSlot * SECOND_SAMPLE_INTERVAL_MS);
+            currentSecondSlot = secondSlot;
+        }
+
+        secondBucket.frameCount += 1;
+        secondBucket.earSum += metrics.ear;
+        secondBucket.marSum += metrics.mar;
+        secondBucket.closedCount += metrics.isClosed ? 1 : 0;
+        secondBucket.blinkDelta += metrics.blinkDelta;
+        secondBucket.headMovePeak = Math.max(secondBucket.headMovePeak, metrics.headMoveDistance);
+        secondBucket.headMoveSum += metrics.headMoveDistance;
+        secondBucket.eyeAlertCount += metrics.eyeAlert ? 1 : 0;
+        secondBucket.yawnAlertCount += metrics.yawnAlert ? 1 : 0;
+        secondBucket.headMoveAlertCount += metrics.headMoveAlert ? 1 : 0;
+        secondBucket.lastPerclos = metrics.perclos;
+        secondBucket.lastBlinkRate = metrics.blinkRate;
+    }
 
     // 维护定长滑动窗口并返回当前均值。
     function pushAndGetAverage(windowValues, value, maxSize) {
@@ -60,7 +132,9 @@ export function createDetector({ dom, ui, storage }) {
 
     // 仅保留统计窗口内的眨眼时间戳。
     function pruneBlinkTimestamps(now) {
-        blinkTimestamps = blinkTimestamps.filter((t) => (now - t) <= BLINK_RATE_WINDOW_MS);
+        while (blinkTimestamps.length > 0 && (now - blinkTimestamps[0]) > BLINK_RATE_WINDOW_MS) {
+            blinkTimestamps.shift();
+        }
     }
 
     // 启动校准流程并重置校准采样。
@@ -88,6 +162,8 @@ export function createDetector({ dom, ui, storage }) {
         blinkTimestamps = [];
         earWindow = [];
         marWindow = [];
+        closedSampleCount = 0;
+        resetSecondSampling();
         ui.setBlinkRate(0);
     }
 
@@ -117,9 +193,15 @@ export function createDetector({ dom, ui, storage }) {
                 ui.triggerAlert('检测到头部大幅度移动！', 'warning');
                 storage.recordEvent('c', normalizedDistance.toFixed(3));
                 lastHeadMoveTime = now;
+                lastNosePosition = { x: nose.x, y: nose.y };
+                return { normalizedDistance, alerted: true };
             }
+
+            lastNosePosition = { x: nose.x, y: nose.y };
+            return { normalizedDistance, alerted: false };
         }
         lastNosePosition = { x: nose.x, y: nose.y };
+        return { normalizedDistance: 0, alerted: false };
     }
 
     // 处理校准阶段 EAR 采样并计算动态阈值。
@@ -150,6 +232,8 @@ export function createDetector({ dom, ui, storage }) {
     function handleEyeAndPerclos(avgEAR, now) {
         const isClosed = avgEAR < currentEarThreshold;
         ui.setEARValue(avgEAR, isClosed);
+        let blinkDelta = 0;
+        let eyeAlertTriggered = false;
 
         if (isClosed) {
             if (!isEyesClosed) {
@@ -160,6 +244,7 @@ export function createDetector({ dom, ui, storage }) {
                 if (duration >= CLOSED_EYES_TIME && (now - lastEyeAlertTime > EYE_ALERT_COOLDOWN_MS)) {
                     ui.triggerAlert('单次长时间闭眼！', 'warning');
                     lastEyeAlertTime = now;
+                    eyeAlertTriggered = true;
                 }
             }
         } else if (isEyesClosed) {
@@ -169,6 +254,7 @@ export function createDetector({ dom, ui, storage }) {
             } else if (duration >= MIN_BLINK_DURATION_MS) {
                 // 从闭眼切回睁眼且时长短于长闭眼阈值，记为一次合法眨眼。
                 blinkTimestamps.push(now);
+                blinkDelta = 1;
             }
             isEyesClosed = false;
         }
@@ -180,28 +266,45 @@ export function createDetector({ dom, ui, storage }) {
         if (epochStartTime === 0) epochStartTime = now;
 
         perclosSamples.push({ timestamp: now, isClosed });
-        perclosSamples = perclosSamples.filter((sample) => (now - sample.timestamp) <= PERCLOS_EPOCH_MS);
+        if (isClosed) {
+            closedSampleCount += 1;
+        }
 
-        const closedCount = perclosSamples.reduce((acc, sample) => acc + (sample.isClosed ? 1 : 0), 0);
-        const perclos = perclosSamples.length > 0 ? (closedCount / perclosSamples.length) : 0;
+        while (perclosSamples.length > 0 && (now - perclosSamples[0].timestamp) > PERCLOS_EPOCH_MS) {
+            const expired = perclosSamples.shift();
+            if (expired.isClosed) {
+                closedSampleCount -= 1;
+            }
+        }
+
+        const perclos = perclosSamples.length > 0 ? (closedSampleCount / perclosSamples.length) : 0;
         ui.setPERCLOS(perclos);
 
         if (now - epochStartTime >= PERCLOS_EPOCH_MS) {
             storage.recordPerclosBlinkRate(perclos, blinkRateCount);
             epochStartTime = now;
         }
+
+        return {
+            isClosed,
+            blinkDelta,
+            perclos,
+            blinkRate: blinkRateCount,
+            eyeAlertTriggered
+        };
     }
 
     // 处理 MAR 与打哈欠告警。
     function handleYawn(smoothedMAR, now) {
         const isOpenWide = smoothedMAR > MAR_THRESHOLD;
         ui.setMARValue(smoothedMAR, isOpenWide);
+        let yawnAlertTriggered = false;
 
         if (isOpenWide) {
             if (yawnOpenStartTime === 0) {
                 yawnOpenStartTime = now;
                 yawnTriggeredInCurrentOpen = false;
-                return;
+                return { yawnAlertTriggered };
             }
 
             const openDuration = now - yawnOpenStartTime;
@@ -214,12 +317,18 @@ export function createDetector({ dom, ui, storage }) {
                 storage.recordEvent('b', smoothedMAR.toFixed(2));
                 lastYawnTime = now;
                 yawnTriggeredInCurrentOpen = true;
+                yawnAlertTriggered = true;
             }
-            return;
+            return { yawnAlertTriggered };
         }
 
         yawnOpenStartTime = 0;
         yawnTriggeredInCurrentOpen = false;
+        return { yawnAlertTriggered };
+    }
+
+    function flushPendingSamples(flushTime = Date.now()) {
+        flushSecondSample(flushTime);
     }
 
     // FaceMesh 每帧结果入口。
@@ -239,7 +348,7 @@ export function createDetector({ dom, ui, storage }) {
             const landmarks = results.multiFaceLandmarks[0];
 
             drawFaceHighlights(landmarks);
-            handleHeadMove(landmarks, now);
+            const headMoveResult = handleHeadMove(landmarks, now);
 
             const rightEAR = calculateEAR(landmarks, RIGHT_EYE_INDICES);
             const leftEAR = calculateEAR(landmarks, LEFT_EYE_INDICES);
@@ -251,10 +360,24 @@ export function createDetector({ dom, ui, storage }) {
             if (isCalibrating) {
                 handleCalibration(smoothedEAR, now);
             } else {
-                handleEyeAndPerclos(smoothedEAR, now);
+                const eyeMetrics = handleEyeAndPerclos(smoothedEAR, now);
+                const yawnMetrics = handleYawn(smoothedMAR, now);
+                updateSecondSampling({
+                    ear: smoothedEAR,
+                    mar: smoothedMAR,
+                    isClosed: eyeMetrics.isClosed,
+                    blinkDelta: eyeMetrics.blinkDelta,
+                    headMoveDistance: headMoveResult.normalizedDistance,
+                    headMoveAlert: headMoveResult.alerted,
+                    eyeAlert: eyeMetrics.eyeAlertTriggered,
+                    yawnAlert: yawnMetrics.yawnAlertTriggered,
+                    perclos: eyeMetrics.perclos,
+                    blinkRate: eyeMetrics.blinkRate
+                }, now);
             }
-
-            handleYawn(smoothedMAR, now);
+            if (isCalibrating) {
+                handleYawn(smoothedMAR, now);
+            }
         } else {
             ui.setNoFaceMetrics();
         }
@@ -265,6 +388,7 @@ export function createDetector({ dom, ui, storage }) {
     return {
         startCalibration,
         resetSessionRuntime,
+        flushPendingSamples,
         handleResults
     };
 }

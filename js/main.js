@@ -68,6 +68,7 @@ async function stopDetection() {
     const canvasCtx = dom.canvasElement.getContext('2d');
     canvasCtx.clearRect(0, 0, dom.canvasElement.width, dom.canvasElement.height);
 
+    detector.flushPendingSamples();
     storage.markLoggingEnd();
     ui.resetMetrics();
     ui.setStoppedState();
@@ -97,5 +98,5 @@ dom.exportBtn.addEventListener('click', () => {
     }
 
     storage.exportAll();
-    ui.triggerAlert('成功导出！分为 [疲劳事件] 与 [60秒PERCLOS+BlinkRate] 两个文件。', 'info');
+    ui.triggerAlert('成功导出 JSONL：包含会话信息、每秒关键样本、事件记录与60秒聚合指标。', 'info');
 });
