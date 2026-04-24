@@ -1,6 +1,6 @@
 {
   "name": "fatigue-detection",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "license": "MIT",
   "description": "基于 MediaPipe Face Mesh 的面部疲劳检测 ",

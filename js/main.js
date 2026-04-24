@@ -20,6 +20,8 @@ const cameraController = createCameraController({
 
 // 当前是否处于检测运行状态。
 let isRunning = false;
+// 启停流程中的并发保护标记。
+let isTransitioning = false;
 // 浏览器屏幕常亮锁对象。
 let wakeLock = null;
 
@@ -56,8 +58,13 @@ async function startDetection() {
         ui.showModelLoadingLog();
     }
 
-    await cameraController.start();
-    isRunning = true;
+    try {
+        await cameraController.start();
+        isRunning = true;
+    } catch (error) {
+        releaseWakeLock();
+        throw error;
+    }
 }
 
 // 停止检测并回收界面与资源状态。
@@ -77,17 +84,32 @@ async function stopDetection() {
 
 // 绑定启停按钮行为。
 dom.toggleBtn.addEventListener('click', async () => {
+    if (isTransitioning) {
+        return;
+    }
+
+    isTransitioning = true;
+    dom.toggleBtn.disabled = true;
+
     if (!isRunning) {
         try {
             await startDetection();
         } catch (error) {
             ui.triggerAlert('启动摄像头失败，请重试。', 'critical');
             ui.setStartFailedState();
+        } finally {
+            isTransitioning = false;
+            dom.toggleBtn.disabled = false;
         }
         return;
     }
 
-    await stopDetection();
+    try {
+        await stopDetection();
+    } finally {
+        isTransitioning = false;
+        dom.toggleBtn.disabled = false;
+    }
 });
 
 // 绑定导出按钮行为。

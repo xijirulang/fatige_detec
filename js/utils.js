@@ -30,7 +30,8 @@ export function getNowTimeText() {
 
 // 触发浏览器下载文本文件。
 export function downloadTextFile(textContent, filename, mimeType = 'text/plain;charset=utf-8') {
-    const blob = new Blob([textContent], { type: mimeType });
+    const blobParts = Array.isArray(textContent) ? textContent : [textContent];
+    const blob = new Blob(blobParts, { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);

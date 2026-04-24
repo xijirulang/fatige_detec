@@ -7,6 +7,7 @@ import { downloadJSONL } from './utils.js';
 const JSONL_SCHEMA_VERSION = '2.0.0';
 const JSONL_SOURCE_VERSION = import.meta.env?.VITE_APP_VERSION || '1.0.0';
 const JSONL_BUILD_TIME = import.meta.env?.VITE_BUILD_TIME || null;
+const EXPORT_CHUNK_LINE_COUNT = 500;
 
 // 管理会话期数据记录与 JSONL 导出。
 export function createStorage() {
@@ -66,6 +67,24 @@ export function createStorage() {
         return Number(value.toFixed(digits));
     }
 
+    // 按时间有序数组做头部裁剪，避免全量 filter。
+    function pruneByCutoff(records, cutoffMs) {
+        if (records.length === 0 || records[0].timestampMs >= cutoffMs) {
+            return records;
+        }
+
+        let firstValidIndex = 0;
+        while (firstValidIndex < records.length && records[firstValidIndex].timestampMs < cutoffMs) {
+            firstValidIndex += 1;
+        }
+
+        if (firstValidIndex === 0) {
+            return records;
+        }
+
+        return records.slice(firstValidIndex);
+    }
+
     // 生成用于文件名的北京时间（无特殊字符）。
     function formatBeijingFilenameTime(date = new Date()) {
         const parts = new Intl.DateTimeFormat('en-CA', {
@@ -121,9 +140,9 @@ export function createStorage() {
         const retentionWindowMs = DATA_RETENTION_HOURS * 60 * 60 * 1000;
         const cutoffMs = nowMs - retentionWindowMs;
 
-        recordedEvents = recordedEvents.filter((item) => item.timestampMs >= cutoffMs);
-        perclosBlinkRateData = perclosBlinkRateData.filter((item) => item.timestampMs >= cutoffMs);
-        perSecondSamples = perSecondSamples.filter((item) => item.timestampMs >= cutoffMs);
+        recordedEvents = pruneByCutoff(recordedEvents, cutoffMs);
+        perclosBlinkRateData = pruneByCutoff(perclosBlinkRateData, cutoffMs);
+        perSecondSamples = pruneByCutoff(perSecondSamples, cutoffMs);
         lastPruneTime = nowMs;
     }
 
@@ -164,9 +183,8 @@ export function createStorage() {
         }
 
         maybePrune(timestampMs);
-        const base = createTimestampEntry(timestampMs);
         perSecondSamples.push({
-            ...base,
+            timestampMs,
             ...sample
         });
     }
@@ -186,9 +204,27 @@ export function createStorage() {
         const endStr = loggingEndTime ? formatBeijingTimestamp(loggingEndTime) : null;
         const fileTime = formatBeijingFilenameTime(sessionStartTime || new Date());
 
-        const lines = [];
+        const blobParts = [];
+        let chunkLines = [];
+
+        function pushLine(record) {
+            chunkLines.push(JSON.stringify(record));
+            if (chunkLines.length >= EXPORT_CHUNK_LINE_COUNT) {
+                blobParts.push(`${chunkLines.join('\n')}\n`);
+                chunkLines = [];
+            }
+        }
+
+        function flushChunk() {
+            if (chunkLines.length === 0) {
+                return;
+            }
+            blobParts.push(`${chunkLines.join('\n')}\n`);
+            chunkLines = [];
+        }
+
         const exportedAt = formatBeijingTimestamp();
-        lines.push(JSON.stringify({
+        pushLine({
             type: 'session',
             schemaVersion: JSONL_SCHEMA_VERSION,
             sourceVersion: JSONL_SOURCE_VERSION,
@@ -203,61 +239,75 @@ export function createStorage() {
                 perSecondSamples: perSecondSamples.length,
                 perclosEpochs: perclosBlinkRateData.length
             }
-        }));
-
-        const mergedRecords = [];
-
-        recordedEvents.forEach((event) => {
-            mergedRecords.push({
-                timestampMs: event.timestampMs,
-                type: 'event',
-                timestamp: event.timestamp,
-                eventType: event.type,
-                value: event.value
-            });
         });
 
-        perSecondSamples.forEach((sample) => {
-            mergedRecords.push({
-                timestampMs: sample.timestampMs,
-                type: 'perSecond',
-                earAvg: roundTo(sample.earAvg, 4),
-                marAvg: roundTo(sample.marAvg, 4),
-                closedRatio: roundTo(sample.closedRatio, 4),
-                blinkDelta: sample.blinkDelta,
-                headMovePeak: roundTo(sample.headMovePeak, 4),
-                headMoveAvg: roundTo(sample.headMoveAvg, 4),
-                perclos: roundTo(sample.perclos, 4),
-                blinkRate: sample.blinkRate,
-                eyeAlerts: sample.eyeAlerts,
-                yawnAlerts: sample.yawnAlerts,
-                headMoveAlerts: sample.headMoveAlerts
-            });
-        });
+        let eventIndex = 0;
+        let secondIndex = 0;
+        let minuteIndex = 0;
 
-        perclosBlinkRateData.forEach((metric) => {
-            mergedRecords.push({
-                timestampMs: metric.timestampMs,
+        while (
+            eventIndex < recordedEvents.length
+            || secondIndex < perSecondSamples.length
+            || minuteIndex < perclosBlinkRateData.length
+        ) {
+            const nextEvent = eventIndex < recordedEvents.length ? recordedEvents[eventIndex] : null;
+            const nextSecond = secondIndex < perSecondSamples.length ? perSecondSamples[secondIndex] : null;
+            const nextMinute = minuteIndex < perclosBlinkRateData.length ? perclosBlinkRateData[minuteIndex] : null;
+
+            const eventTs = nextEvent ? nextEvent.timestampMs : Number.POSITIVE_INFINITY;
+            const secondTs = nextSecond ? nextSecond.timestampMs : Number.POSITIVE_INFINITY;
+            const minuteTs = nextMinute ? nextMinute.timestampMs : Number.POSITIVE_INFINITY;
+
+            if (eventTs <= secondTs && eventTs <= minuteTs) {
+                pushLine({
+                    timestampMs: nextEvent.timestampMs,
+                    type: 'event',
+                    timestamp: nextEvent.timestamp,
+                    eventType: nextEvent.type,
+                    value: nextEvent.value
+                });
+                eventIndex += 1;
+                continue;
+            }
+
+            if (secondTs <= eventTs && secondTs <= minuteTs) {
+                pushLine({
+                    timestampMs: nextSecond.timestampMs,
+                    type: 'perSecond',
+                    earAvg: roundTo(nextSecond.earAvg, 4),
+                    marAvg: roundTo(nextSecond.marAvg, 4),
+                    closedRatio: roundTo(nextSecond.closedRatio, 4),
+                    blinkDelta: nextSecond.blinkDelta,
+                    headMovePeak: roundTo(nextSecond.headMovePeak, 4),
+                    headMoveAvg: roundTo(nextSecond.headMoveAvg, 4),
+                    perclos: roundTo(nextSecond.perclos, 4),
+                    blinkRate: nextSecond.blinkRate,
+                    eyeAlerts: nextSecond.eyeAlerts,
+                    yawnAlerts: nextSecond.yawnAlerts,
+                    headMoveAlerts: nextSecond.headMoveAlerts
+                });
+                secondIndex += 1;
+                continue;
+            }
+
+            pushLine({
+                timestampMs: nextMinute.timestampMs,
                 type: 'perclosMinute',
-                timestamp: metric.timestamp,
-                perclos: roundTo(metric.perclos, 4),
-                blinkRate: metric.blinkRate
+                timestamp: nextMinute.timestamp,
+                perclos: roundTo(nextMinute.perclos, 4),
+                blinkRate: nextMinute.blinkRate
             });
-        });
+            minuteIndex += 1;
+        }
 
-        mergedRecords
-            .sort((a, b) => a.timestampMs - b.timestampMs)
-            .forEach((record) => {
-                lines.push(JSON.stringify(record));
-            });
-
-        lines.push(JSON.stringify({
+        pushLine({
             type: 'sessionEnd',
             loggingEndTime: endStr,
             exportedAt
-        }));
+        });
 
-        downloadJSONL(`${lines.join('\n')}\n`, `${fileTime}_summary.jsonl`);
+        flushChunk();
+        downloadJSONL(blobParts, `${fileTime}_summary.jsonl`);
 
         return true;
     }

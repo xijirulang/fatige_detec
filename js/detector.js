@@ -216,7 +216,7 @@ export function createDetector({ dom, ui, storage }) {
         ui.setCalibrationEAR(avgEAR);
 
         if (now - calibrationStartTime > CALIBRATION_DURATION_MS && calibrationEARValues.length > CALIBRATION_MIN_SAMPLES) {
-            const sortedEARs = [...calibrationEARValues].sort();
+            const sortedEARs = [...calibrationEARValues].sort((a, b) => a - b);
             const topHalf = sortedEARs.slice(Math.floor(sortedEARs.length / 2));
             baselineEAR = topHalf.reduce((a, b) => a + b, 0) / topHalf.length;
             currentEarThreshold = baselineEAR * EAR_RATIO_THRESHOLD;
@@ -335,8 +335,12 @@ export function createDetector({ dom, ui, storage }) {
     function handleResults(results) {
         ui.setDetectingStateIfLoadingVisible();
 
-        dom.canvasElement.width = results.image.width;
-        dom.canvasElement.height = results.image.height;
+        if (dom.canvasElement.width !== results.image.width) {
+            dom.canvasElement.width = results.image.width;
+        }
+        if (dom.canvasElement.height !== results.image.height) {
+            dom.canvasElement.height = results.image.height;
+        }
 
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, dom.canvasElement.width, dom.canvasElement.height);
