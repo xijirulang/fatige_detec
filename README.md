@@ -242,7 +242,3 @@ npm run preview
   1. 先改 `js/config.js` 参数
   2. 再改 `js/detector.js` 逻辑
   3. 最后检查 `js/storage.js` 导出字段一致性
-
-## 13. License
-
-当前仓库未显式声明开源许可证。若要开源发布，建议补充 `LICENSE` 文件。

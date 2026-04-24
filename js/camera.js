@@ -8,6 +8,8 @@ export function createCameraController({ videoElement, onResults }) {
     let faceMesh = null;
     // 上一帧处理时间戳（用于降频）。
     let lastProcessTime = 0;
+    // 本地 MediaPipe 资源根路径。
+    const mediapipeBasePath = `${import.meta.env.BASE_URL}vendor/mediapipe`;
 
     // 判断摄像头与模型是否已完成初始化。
     function isInitialized() {
@@ -20,7 +22,7 @@ export function createCameraController({ videoElement, onResults }) {
 
         faceMesh = new window.FaceMesh({
             locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+                return `${mediapipeBasePath}/${file}`;
             }
         });
 

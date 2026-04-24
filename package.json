@@ -2,13 +2,19 @@
   "name": "fatigue-detection",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "基于 MediaPipe Face Mesh 的面部疲劳检测 ",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:css": "tailwindcss -c tailwind.config.cjs -i ./css/style.css -o ./dist/tailwind-preview.css --minify",
+    "watch:css": "tailwindcss -c tailwind.config.cjs -i ./css/style.css -o ./dist/tailwind-preview.css --watch",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.17",
     "vite": "^5.4.11"
   }
 }

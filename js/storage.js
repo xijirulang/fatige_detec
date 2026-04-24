@@ -4,6 +4,10 @@ import {
 } from './config.js';
 import { downloadJSONL } from './utils.js';
 
+const JSONL_SCHEMA_VERSION = '2.0.0';
+const JSONL_SOURCE_VERSION = import.meta.env?.VITE_APP_VERSION || '1.0.0';
+const JSONL_BUILD_TIME = import.meta.env?.VITE_BUILD_TIME || null;
+
 // 管理会话期数据记录与 JSONL 导出。
 export function createStorage() {
     // 本次检测启动时间。
@@ -51,6 +55,15 @@ export function createStorage() {
             timestampMs,
             timestamp: formatBeijingTimestamp(new Date(timestampMs))
         };
+    }
+
+    // 统一浮点定点化，避免导出长尾小数。
+    function roundTo(value, digits = 4) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return value;
+        }
+
+        return Number(value.toFixed(digits));
     }
 
     // 生成用于文件名的北京时间（无特殊字符）。
@@ -174,12 +187,16 @@ export function createStorage() {
         const fileTime = formatBeijingFilenameTime(sessionStartTime || new Date());
 
         const lines = [];
+        const exportedAt = formatBeijingTimestamp();
         lines.push(JSON.stringify({
             type: 'session',
+            schemaVersion: JSONL_SCHEMA_VERSION,
+            sourceVersion: JSONL_SOURCE_VERSION,
+            buildTime: JSONL_BUILD_TIME,
             sessionStartTime: sessionStartTime ? formatBeijingTimestamp(sessionStartTime) : null,
             loggingStartTime: startStr,
             loggingEndTime: endStr,
-            exportedAt: formatBeijingTimestamp(),
+            exportedAt,
             retentionHours: DATA_RETENTION_HOURS,
             counters: {
                 events: recordedEvents.length,
@@ -188,37 +205,56 @@ export function createStorage() {
             }
         }));
 
+        const mergedRecords = [];
+
         recordedEvents.forEach((event) => {
-            lines.push(JSON.stringify({
-                type: 'event',
+            mergedRecords.push({
                 timestampMs: event.timestampMs,
+                type: 'event',
                 timestamp: event.timestamp,
                 eventType: event.type,
                 value: event.value
-            }));
+            });
         });
 
         perSecondSamples.forEach((sample) => {
-            lines.push(JSON.stringify({
+            mergedRecords.push({
+                timestampMs: sample.timestampMs,
                 type: 'perSecond',
-                ...sample
-            }));
+                earAvg: roundTo(sample.earAvg, 4),
+                marAvg: roundTo(sample.marAvg, 4),
+                closedRatio: roundTo(sample.closedRatio, 4),
+                blinkDelta: sample.blinkDelta,
+                headMovePeak: roundTo(sample.headMovePeak, 4),
+                headMoveAvg: roundTo(sample.headMoveAvg, 4),
+                perclos: roundTo(sample.perclos, 4),
+                blinkRate: sample.blinkRate,
+                eyeAlerts: sample.eyeAlerts,
+                yawnAlerts: sample.yawnAlerts,
+                headMoveAlerts: sample.headMoveAlerts
+            });
         });
 
         perclosBlinkRateData.forEach((metric) => {
-            lines.push(JSON.stringify({
-                type: 'perclosMinute',
+            mergedRecords.push({
                 timestampMs: metric.timestampMs,
+                type: 'perclosMinute',
                 timestamp: metric.timestamp,
-                perclos: metric.perclos,
+                perclos: roundTo(metric.perclos, 4),
                 blinkRate: metric.blinkRate
-            }));
+            });
         });
+
+        mergedRecords
+            .sort((a, b) => a.timestampMs - b.timestampMs)
+            .forEach((record) => {
+                lines.push(JSON.stringify(record));
+            });
 
         lines.push(JSON.stringify({
             type: 'sessionEnd',
             loggingEndTime: endStr,
-            exportedAt: formatBeijingTimestamp()
+            exportedAt
         }));
 
         downloadJSONL(`${lines.join('\n')}\n`, `${fileTime}_summary.jsonl`);
