@@ -1,0 +1,5 @@
+{
+  "appId": "com.fatigue.detector",
+  "appName": "Fatigue Detection",
+  "webDir": "dist"
+}

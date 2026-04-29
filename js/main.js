@@ -3,6 +3,7 @@ import { createUI } from './ui.js';
 import { createStorage } from './storage.js';
 import { createDetector } from './detector.js';
 import { createCameraController } from './camera.js';
+import { requestCameraAccessPermission } from './utils.js';
 
 // 全局 DOM 引用。
 const dom = getDomElements();
@@ -46,6 +47,11 @@ function releaseWakeLock() {
 
 // 启动一次完整检测流程。
 async function startDetection() {
+    const permission = await requestCameraAccessPermission();
+    if (!permission.granted) {
+        throw new Error('camera-permission-denied');
+    }
+
     await requestWakeLock();
 
     storage.startSession();
@@ -113,12 +119,16 @@ dom.toggleBtn.addEventListener('click', async () => {
 });
 
 // 绑定导出按钮行为。
-dom.exportBtn.addEventListener('click', () => {
+dom.exportBtn.addEventListener('click', async () => {
     if (!storage.hasData()) {
         ui.triggerAlert('目前没有记录到任何数据可供导出。', 'info');
         return;
     }
 
-    storage.exportAll();
-    ui.triggerAlert('成功导出 JSONL：包含会话信息、每秒关键样本、事件记录与60秒聚合指标。', 'info');
+    try {
+        await storage.exportAll();
+        ui.triggerAlert('成功导出 JSONL：包含会话信息、每秒关键样本、事件记录与60秒聚合指标。', 'info');
+    } catch {
+        ui.triggerAlert('导出失败，请检查存储权限后重试。', 'critical');
+    }
 });

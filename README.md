@@ -91,6 +91,40 @@ npm run build
 npm run preview
 ```
 
+### 4.4 打包为 Android App（Capacitor）
+
+本项目已接入 Capacitor，并生成 Android 原生工程。
+
+首次需要准备：
+
+- 安装 Android Studio（含 Android SDK、Platform Tools、Build Tools）
+- 设置 `ANDROID_HOME`（或 `ANDROID_SDK_ROOT`）到本机 SDK 路径
+- 安装可用的 Android API（建议 API 34+）
+
+日常同步前端改动到安卓工程：
+
+```bash
+npm run android:sync
+```
+
+打开 Android Studio 工程：
+
+```bash
+npm run android:open
+```
+
+在 Android Studio 中生成 APK：
+
+1. 等待 Gradle 同步完成。
+2. 菜单选择 Build -> Build Bundle(s) / APK(s) -> Build APK(s)。
+3. 构建完成后在提示中点击 locate，或到 `android/app/build/outputs/apk/debug/` 获取 apk。
+
+命令行直接运行到已连接设备（可选）：
+
+```bash
+npm run android:run
+```
+
 ## 5. 使用流程
 
 1. 点击“启动摄像头开始检测”。

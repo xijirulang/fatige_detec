@@ -195,7 +195,7 @@ export function createStorage() {
     }
 
     // 导出为 JSON Lines（NDJSON），便于长时流式解析。
-    function exportAll() {
+    async function exportAll() {
         if (!hasData()) {
             return false;
         }
@@ -307,7 +307,7 @@ export function createStorage() {
         });
 
         flushChunk();
-        downloadJSONL(blobParts, `${fileTime}_summary.jsonl`);
+        await downloadJSONL(blobParts, `${fileTime}_summary.jsonl`);
 
         return true;
     }
